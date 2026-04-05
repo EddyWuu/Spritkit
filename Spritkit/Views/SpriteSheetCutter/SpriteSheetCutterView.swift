@@ -2,7 +2,7 @@
 //  SpriteSheetCutterView.swift
 //  Spritkit
 //
-//  Created by Edmond Wu on 2026-04-04.   nlesjgnlaeg
+//  Created by Edmond Wu on 2026-04-04.
 //
 
 import SwiftUI
