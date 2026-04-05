@@ -14,6 +14,12 @@ struct AnimationPreviewView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                // Clip picker (if multiple clips available)
+                if !viewModel.clips.isEmpty {
+                    clipPicker
+                    Divider()
+                }
+                
                 // Animation canvas
                 canvasSection
                 
@@ -29,7 +35,65 @@ struct AnimationPreviewView: View {
                 controlsSection
             }
             .navigationTitle("Animation Preview")
+            .toolbar {
+                if viewModel.hasFrames {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(role: .destructive) {
+                            viewModel.reset()
+                        } label: {
+                            Label("Clear", systemImage: "xmark.circle.fill")
+                        }
+                        .tint(.red)
+                    }
+                }
+            }
         }
+    }
+    
+    // MARK: - Clip Picker
+    
+    private var clipPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                // "All Frames" option
+                clipChip(name: "All Frames", color: .gray, isActive: viewModel.activeClip == nil) {
+                    viewModel.selectClip(nil)
+                }
+                
+                // Individual clips
+                ForEach(viewModel.clips) { clip in
+                    clipChip(name: clip.name, color: clip.colorTag.color, isActive: viewModel.activeClip?.id == clip.id) {
+                        viewModel.selectClip(clip)
+                    }
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        }
+        .background(Color(uiColor: .secondarySystemBackground))
+    }
+    
+    private func clipChip(name: String, color: Color, isActive: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 8, height: 8)
+                Text(name)
+                    .font(.caption.weight(isActive ? .bold : .regular))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                isActive ? color.opacity(0.2) : Color(uiColor: .tertiarySystemBackground),
+                in: Capsule()
+            )
+            .overlay(
+                Capsule()
+                    .stroke(isActive ? color : Color.clear, lineWidth: 1.5)
+            )
+        }
+        .buttonStyle(.plain)
     }
     
     // MARK: - Canvas
@@ -67,7 +131,7 @@ struct AnimationPreviewView: View {
     private var timelineStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 4) {
-                ForEach(Array(viewModel.frames.enumerated()), id: \.offset) { index, pair in
+                ForEach(Array(viewModel.activeFrames.enumerated()), id: \.offset) { index, pair in
                     Image(decorative: pair.1, scale: 1.0)
                         .interpolation(.none)
                         .resizable()

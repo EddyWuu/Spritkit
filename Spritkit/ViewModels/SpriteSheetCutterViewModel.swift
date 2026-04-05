@@ -24,6 +24,18 @@ class SpriteSheetCutterViewModel: ObservableObject {
     @Published var isProcessing = false
     @Published var errorMessage: String?
     
+    // MARK: - Frame Selection (for creating animation clips)
+    
+    @Published var selectedFrameIndices: Set<Int> = []
+    @Published var isSelectingFrames = false
+    
+    // MARK: - Clip Management
+    
+    @Published var clips: [AnimationClip] = []
+    @Published var showingCreateClip = false
+    @Published var newClipName = ""
+    @Published var newClipColor: ClipColor = .blue
+    
     // MARK: - Grid Controls
     
     var gridRows: Int {
@@ -81,7 +93,78 @@ class SpriteSheetCutterViewModel: ObservableObject {
         return "\(w)×\(h)"
     }
     
-    // MARK: - Actions
+    // Which clip "owns" a given frame index (for coloring the strip)
+    func clipColor(for frameIndex: Int) -> Color? {
+        for clip in clips {
+            if clip.frameIndices.contains(frameIndex) {
+                return clip.colorTag.color
+            }
+        }
+        return nil
+    }
+    
+    // MARK: - Frame Selection Actions
+    
+    func toggleFrameSelection(_ index: Int) {
+        if selectedFrameIndices.contains(index) {
+            selectedFrameIndices.remove(index)
+        } else {
+            selectedFrameIndices.insert(index)
+        }
+    }
+    
+    func selectAll() {
+        selectedFrameIndices = Set(0..<cutFrames.count)
+    }
+    
+    func deselectAll() {
+        selectedFrameIndices.removeAll()
+    }
+    
+    func selectRange(from start: Int, to end: Int) {
+        let range = min(start, end)...max(start, end)
+        selectedFrameIndices = Set(range)
+    }
+    
+    // MARK: - Clip Actions
+    
+    func createClipFromSelection() {
+        guard !selectedFrameIndices.isEmpty else { return }
+        
+        let sorted = selectedFrameIndices.sorted()
+        let name = newClipName.isEmpty ? "Animation \(clips.count + 1)" : newClipName
+        
+        let clip = AnimationClip(
+            name: name,
+            frameIndices: sorted,
+            colorTag: newClipColor
+        )
+        
+        clips.append(clip)
+        spriteSheet.clips = clips
+        
+        // Reset selection state
+        selectedFrameIndices.removeAll()
+        newClipName = ""
+        
+        // Cycle to next color
+        let allColors = ClipColor.allCases
+        if let currentIdx = allColors.firstIndex(of: newClipColor) {
+            newClipColor = allColors[(currentIdx + 1) % allColors.count]
+        }
+    }
+    
+    func deleteClip(_ clip: AnimationClip) {
+        clips.removeAll { $0.id == clip.id }
+        spriteSheet.clips = clips
+    }
+    
+    func deleteClip(at offsets: IndexSet) {
+        clips.remove(atOffsets: offsets)
+        spriteSheet.clips = clips
+    }
+    
+    // MARK: - Slice Actions
     
     func sliceSheet() {
         guard let source = sourceImage else { return }
@@ -94,7 +177,10 @@ class SpriteSheetCutterViewModel: ObservableObject {
         isProcessing = true
         errorMessage = nil
         
-        // Capture the sheet as a value type before entering the Task
+        // Clear previous clips and selection when re-slicing
+        clips.removeAll()
+        selectedFrameIndices.removeAll()
+        
         let sheetSnapshot = spriteSheet
         
         Task.detached {
@@ -128,12 +214,18 @@ class SpriteSheetCutterViewModel: ObservableObject {
         spriteSheet.sourceHeight = image.height
         spriteSheet.computeGridFrames()
         cutFrames = []
+        clips = []
+        selectedFrameIndices.removeAll()
     }
     
     func reset() {
         sourceImage = nil
         spriteSheet = SpriteSheet()
         cutFrames = []
+        clips = []
+        selectedFrameIndices.removeAll()
         errorMessage = nil
+        newClipName = ""
+        isSelectingFrames = false
     }
 }

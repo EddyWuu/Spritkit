@@ -58,6 +58,9 @@ nonisolated struct SpriteSheet: Identifiable, Codable, Sendable {
     // Padding between frames (in pixels)
     var padding: Int
     
+    // Named animation clips (groups of frame indices)
+    var clips: [AnimationClip]
+    
     init(
         id: UUID = UUID(),
         name: String = "Untitled Sheet",
@@ -68,7 +71,8 @@ nonisolated struct SpriteSheet: Identifiable, Codable, Sendable {
         createdAt: Date = Date(),
         gridRows: Int = 1,
         gridCols: Int = 1,
-        padding: Int = 0
+        padding: Int = 0,
+        clips: [AnimationClip] = []
     ) {
         self.id = id
         self.name = name
@@ -80,6 +84,7 @@ nonisolated struct SpriteSheet: Identifiable, Codable, Sendable {
         self.gridRows = gridRows
         self.gridCols = gridCols
         self.padding = padding
+        self.clips = clips
     }
     
     // Compute uniform grid frames from current parameters

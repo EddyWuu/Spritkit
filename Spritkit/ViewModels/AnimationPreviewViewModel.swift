@@ -14,8 +14,14 @@ class AnimationPreviewViewModel: ObservableObject {
     
     // MARK: - Input
     
-    // The frames to animate (typically from SpriteSheetCutter output)
-    @Published var frames: [(AnimationFrame, CGImage)] = []
+    // All frames from the cutter (the full set)
+    @Published var allFrames: [(AnimationFrame, CGImage)] = []
+    
+    // Available animation clips
+    @Published var clips: [AnimationClip] = []
+    
+    // Currently selected clip (nil = "All Frames")
+    @Published var activeClip: AnimationClip?
     
     // MARK: - Playback State
     
@@ -29,20 +35,35 @@ class AnimationPreviewViewModel: ObservableObject {
     
     // MARK: - Computed
     
+    // The frames currently being played (filtered by active clip)
+    var activeFrames: [(AnimationFrame, CGImage)] {
+        guard let clip = activeClip else { return allFrames }
+        return clip.frameIndices.compactMap { idx in
+            guard idx < allFrames.count else { return nil }
+            return allFrames[idx]
+        }
+    }
+    
     var currentImage: CGImage? {
+        let frames = activeFrames
         guard !frames.isEmpty, currentFrameIndex < frames.count else { return nil }
         return frames[currentFrameIndex].1
     }
     
-    var frameCount: Int { frames.count }
+    var frameCount: Int { activeFrames.count }
     
     var frameDuration: TimeInterval { 1.0 / fps }
     
-    var hasFrames: Bool { !frames.isEmpty }
+    var hasFrames: Bool { !activeFrames.isEmpty }
     
     var currentFrameLabel: String {
         guard hasFrames else { return "—" }
-        return "\(currentFrameIndex + 1) / \(frameCount)"
+        let clipName = activeClip?.name ?? "All Frames"
+        return "\(clipName) • \(currentFrameIndex + 1) / \(frameCount)"
+    }
+    
+    var activeClipName: String {
+        activeClip?.name ?? "All Frames"
     }
     
     // MARK: - Actions
@@ -86,17 +107,18 @@ class AnimationPreviewViewModel: ObservableObject {
             currentFrameIndex = (currentFrameIndex + 1) % frameCount
             
         case .pingPong:
+            if frameCount <= 1 { return }
             if isReversing {
                 if currentFrameIndex <= 0 {
                     isReversing = false
-                    currentFrameIndex = 1
+                    currentFrameIndex = min(1, frameCount - 1)
                 } else {
                     currentFrameIndex -= 1
                 }
             } else {
                 if currentFrameIndex >= frameCount - 1 {
                     isReversing = true
-                    currentFrameIndex = frameCount - 2
+                    currentFrameIndex = max(frameCount - 2, 0)
                 } else {
                     currentFrameIndex += 1
                 }
@@ -111,15 +133,65 @@ class AnimationPreviewViewModel: ObservableObject {
         }
     }
     
+    // Load all frames (no clip — plays everything)
     func loadFrames(_ newFrames: [(AnimationFrame, CGImage)]) {
-        frames = newFrames
+        allFrames = newFrames
+        activeClip = nil
+        clips = []
         currentFrameIndex = 0
         isPlaying = false
         isReversing = false
     }
     
+    // Load a specific clip's frames for preview
+    func loadClip(_ clip: AnimationClip, frames: [(AnimationFrame, CGImage)]) {
+        // Store the full frames set if we don't have them yet
+        if allFrames.isEmpty {
+            allFrames = frames
+        }
+        
+        // If we don't already have this clip, add it
+        if !clips.contains(where: { $0.id == clip.id }) {
+            clips.append(clip)
+        }
+        
+        activeClip = clip
+        fps = clip.fps
+        playbackMode = clip.playbackMode
+        currentFrameIndex = 0
+        isPlaying = false
+        isReversing = false
+    }
+    
+    // Load all frames with multiple clips
+    func loadWithClips(_ frames: [(AnimationFrame, CGImage)], clips: [AnimationClip]) {
+        allFrames = frames
+        self.clips = clips
+        activeClip = clips.first
+        if let first = clips.first {
+            fps = first.fps
+            playbackMode = first.playbackMode
+        }
+        currentFrameIndex = 0
+        isPlaying = false
+        isReversing = false
+    }
+    
+    func selectClip(_ clip: AnimationClip?) {
+        isPlaying = false
+        activeClip = clip
+        if let clip {
+            fps = clip.fps
+            playbackMode = clip.playbackMode
+        }
+        currentFrameIndex = 0
+        isReversing = false
+    }
+    
     func reset() {
-        frames = []
+        allFrames = []
+        clips = []
+        activeClip = nil
         currentFrameIndex = 0
         isPlaying = false
         fps = 12.0

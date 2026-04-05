@@ -7,6 +7,7 @@
 
 import Foundation
 import CoreGraphics
+import SwiftUI
 
 // A single frame in a sprite animation
 nonisolated struct AnimationFrame: Identifiable, Codable, Sendable {
@@ -40,6 +41,60 @@ nonisolated struct AnimationFrame: Identifiable, Codable, Sendable {
         self.width = width
         self.height = height
         self.imageFilename = imageFilename
+    }
+}
+
+// A named animation clip — a subset of frames from a sprite sheet
+// that form one animation sequence (e.g. "Walk", "Attack", "Idle").
+// Inspired by Aseprite's "tags" concept.
+nonisolated struct AnimationClip: Identifiable, Codable, Sendable {
+    
+    let id: UUID
+    var name: String
+    
+    // Indices into the parent sheet's cut frames array
+    var frameIndices: [Int]
+    
+    // Per-clip playback defaults
+    var fps: Double
+    var playbackMode: PlaybackMode
+    
+    // Color tag for visual identification in the frame strip
+    var colorTag: ClipColor
+    
+    init(
+        id: UUID = UUID(),
+        name: String = "Untitled",
+        frameIndices: [Int] = [],
+        fps: Double = 12.0,
+        playbackMode: PlaybackMode = .loop,
+        colorTag: ClipColor = .blue
+    ) {
+        self.id = id
+        self.name = name
+        self.frameIndices = frameIndices
+        self.fps = fps
+        self.playbackMode = playbackMode
+        self.colorTag = colorTag
+    }
+    
+    var frameCount: Int { frameIndices.count }
+}
+
+// Color options for animation clip tags
+nonisolated enum ClipColor: String, Codable, CaseIterable, Sendable {
+    case red, orange, yellow, green, blue, purple, pink
+    
+    var color: Color {
+        switch self {
+        case .red: return .red
+        case .orange: return .orange
+        case .yellow: return .yellow
+        case .green: return .green
+        case .blue: return .blue
+        case .purple: return .purple
+        case .pink: return .pink
+        }
     }
 }
 
