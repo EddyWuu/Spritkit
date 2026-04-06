@@ -22,63 +22,52 @@ struct SpriteCanvasView: View {
     @State private var lastOffset: CGSize = .zero
     
     var body: some View {
-        GeometryReader { geo in
-            let imageSize = CGSize(width: image.width, height: image.height)
-            let fitScale = fitScaleFor(imageSize: imageSize, in: geo.size)
+        ZStack {
+            // Checkerboard background (transparency indicator)
+            CheckerboardView()
+                .opacity(0.3)
             
-            ZStack {
-                // Checkerboard background (transparency indicator)
-                CheckerboardView()
-                    .opacity(0.3)
-                
-                // The sprite image — nearest-neighbor interpolation
-                Image(decorative: image, scale: 1.0)
-                    .interpolation(.none)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .overlay {
-                        if showGrid {
-                            GridOverlayView(rows: gridRows, cols: gridCols, color: gridColor)
-                        }
+            // The sprite image — nearest-neighbor interpolation
+            Image(decorative: image, scale: 1.0)
+                .interpolation(.none)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .overlay {
+                    if showGrid {
+                        GridOverlayView(rows: gridRows, cols: gridCols, color: gridColor)
                     }
-            }
-            .scaleEffect(zoom * fitScale)
-            .offset(offset)
-            .gesture(
-                MagnifyGesture()
-                    .onChanged { value in
-                        zoom = max(0.5, min(value.magnification, 32))
-                    }
-            )
-            .simultaneousGesture(
-                DragGesture()
-                    .onChanged { value in
-                        offset = CGSize(
-                            width: lastOffset.width + value.translation.width,
-                            height: lastOffset.height + value.translation.height
-                        )
-                    }
-                    .onEnded { _ in
-                        lastOffset = offset
-                    }
-            )
-            .onTapGesture(count: 2) {
-                withAnimation(.spring(duration: 0.3)) {
-                    zoom = 1.0
-                    offset = .zero
-                    lastOffset = .zero
                 }
+        }
+        .scaleEffect(zoom)
+        .offset(offset)
+        .gesture(
+            MagnifyGesture()
+                .onChanged { value in
+                    zoom = max(0.5, min(value.magnification, 32))
+                }
+        )
+        .simultaneousGesture(
+            DragGesture()
+                .onChanged { value in
+                    offset = CGSize(
+                        width: lastOffset.width + value.translation.width,
+                        height: lastOffset.height + value.translation.height
+                    )
+                }
+                .onEnded { _ in
+                    lastOffset = offset
+                }
+        )
+        .onTapGesture(count: 2) {
+            withAnimation(.spring(duration: 0.3)) {
+                zoom = 1.0
+                offset = .zero
+                lastOffset = .zero
             }
         }
         .clipped()
         .background(Color(uiColor: .systemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-    
-    private func fitScaleFor(imageSize: CGSize, in containerSize: CGSize) -> CGFloat {
-        let scaleX = containerSize.width / imageSize.width
-        let scaleY = containerSize.height / imageSize.height
-        return min(scaleX, scaleY)
     }
 }
 

@@ -101,21 +101,16 @@ struct AnimationPreviewView: View {
     @ViewBuilder
     private var canvasSection: some View {
         if let image = viewModel.currentImage {
-            TimelineView(.periodic(from: .now, by: viewModel.frameDuration)) { timeline in
-                SpriteCanvasView(image: image)
-                    .onChange(of: timeline.date) { _, _ in
-                        viewModel.advanceFrame()
-                    }
-            }
-            .frame(maxHeight: .infinity)
-            .overlay(alignment: .topTrailing) {
-                Text(viewModel.currentFrameLabel)
-                    .font(.caption.monospaced())
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(8)
-            }
+            SpriteCanvasView(image: image)
+                .frame(maxHeight: .infinity)
+                .overlay(alignment: .topTrailing) {
+                    Text(viewModel.currentFrameLabel)
+                        .font(.caption.monospaced())
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(8)
+                }
         } else {
             ContentUnavailableView {
                 Label("No Frames Loaded", systemImage: "play.rectangle")

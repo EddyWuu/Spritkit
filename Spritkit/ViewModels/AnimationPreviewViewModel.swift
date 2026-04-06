@@ -27,11 +27,16 @@ class AnimationPreviewViewModel: ObservableObject {
     
     @Published var currentFrameIndex: Int = 0
     @Published var isPlaying = false
-    @Published var fps: Double = 12.0
+    @Published var fps: Double = 12.0 {
+        didSet { restartTimerIfPlaying() }
+    }
     @Published var playbackMode: PlaybackMode = .loop
     
     // For ping-pong mode
     private var isReversing = false
+    
+    // Timer-based playback (avoids TimelineView double-fire bug)
+    private var timerCancellable: AnyCancellable?
     
     // MARK: - Computed
     
@@ -71,10 +76,12 @@ class AnimationPreviewViewModel: ObservableObject {
     func play() {
         guard hasFrames else { return }
         isPlaying = true
+        startTimer()
     }
     
     func pause() {
         isPlaying = false
+        stopTimer()
     }
     
     func togglePlayback() {
@@ -83,6 +90,7 @@ class AnimationPreviewViewModel: ObservableObject {
     
     func stop() {
         isPlaying = false
+        stopTimer()
         currentFrameIndex = 0
         isReversing = false
     }
@@ -97,9 +105,28 @@ class AnimationPreviewViewModel: ObservableObject {
         currentFrameIndex = currentFrameIndex > 0 ? currentFrameIndex - 1 : frameCount - 1
     }
     
+    // MARK: - Timer
+    
+    private func startTimer() {
+        stopTimer()
+        timerCancellable = Timer.publish(every: frameDuration, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.advanceFrame()
+            }
+    }
+    
+    private func stopTimer() {
+        timerCancellable?.cancel()
+        timerCancellable = nil
+    }
+    
+    private func restartTimerIfPlaying() {
+        if isPlaying { startTimer() }
+    }
+    
     // Advance to the next frame based on playback mode.
-    // Called by the TimelineView on each tick.
-    func advanceFrame() {
+    private func advanceFrame() {
         guard hasFrames, isPlaying else { return }
         
         switch playbackMode {
@@ -129,12 +156,14 @@ class AnimationPreviewViewModel: ObservableObject {
                 currentFrameIndex += 1
             } else {
                 isPlaying = false
+                stopTimer()
             }
         }
     }
     
     // Load all frames (no clip — plays everything)
     func loadFrames(_ newFrames: [(AnimationFrame, CGImage)]) {
+        stopTimer()
         allFrames = newFrames
         activeClip = nil
         clips = []
@@ -145,6 +174,7 @@ class AnimationPreviewViewModel: ObservableObject {
     
     // Load a specific clip's frames for preview
     func loadClip(_ clip: AnimationClip, frames: [(AnimationFrame, CGImage)]) {
+        stopTimer()
         // Store the full frames set if we don't have them yet
         if allFrames.isEmpty {
             allFrames = frames
@@ -165,6 +195,7 @@ class AnimationPreviewViewModel: ObservableObject {
     
     // Load all frames with multiple clips
     func loadWithClips(_ frames: [(AnimationFrame, CGImage)], clips: [AnimationClip]) {
+        stopTimer()
         allFrames = frames
         self.clips = clips
         activeClip = clips.first
@@ -178,6 +209,7 @@ class AnimationPreviewViewModel: ObservableObject {
     }
     
     func selectClip(_ clip: AnimationClip?) {
+        stopTimer()
         isPlaying = false
         activeClip = clip
         if let clip {
@@ -189,6 +221,7 @@ class AnimationPreviewViewModel: ObservableObject {
     }
     
     func reset() {
+        stopTimer()
         allFrames = []
         clips = []
         activeClip = nil
