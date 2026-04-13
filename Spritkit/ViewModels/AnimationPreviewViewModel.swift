@@ -172,15 +172,12 @@ class AnimationPreviewViewModel: ObservableObject {
         isReversing = false
     }
     
-    // Load a specific clip's frames for preview
-    func loadClip(_ clip: AnimationClip, frames: [(AnimationFrame, CGImage)]) {
+    // Load a specific clip's frames for preview.
+    // Always replaces allFrames with the full set, then selects the given clip.
+    func loadClip(_ clip: AnimationClip, allCutFrames: [(AnimationFrame, CGImage)]) {
         stopTimer()
-        // Store the full frames set if we don't have them yet
-        if allFrames.isEmpty {
-            allFrames = frames
-        }
+        allFrames = allCutFrames
         
-        // If we don't already have this clip, add it
         if !clips.contains(where: { $0.id == clip.id }) {
             clips.append(clip)
         }
@@ -193,15 +190,15 @@ class AnimationPreviewViewModel: ObservableObject {
         isReversing = false
     }
     
-    // Load all frames with multiple clips
-    func loadWithClips(_ frames: [(AnimationFrame, CGImage)], clips: [AnimationClip]) {
+    // Load all frames with multiple clips, optionally selecting one
+    func loadWithClips(_ frames: [(AnimationFrame, CGImage)], clips: [AnimationClip], activeClip: AnimationClip? = nil) {
         stopTimer()
         allFrames = frames
         self.clips = clips
-        activeClip = clips.first
-        if let first = clips.first {
-            fps = first.fps
-            playbackMode = first.playbackMode
+        self.activeClip = activeClip ?? clips.first
+        if let active = self.activeClip {
+            fps = active.fps
+            playbackMode = active.playbackMode
         }
         currentFrameIndex = 0
         isPlaying = false

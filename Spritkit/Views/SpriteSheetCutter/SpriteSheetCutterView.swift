@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct SpriteSheetCutterView: View {
     
@@ -13,6 +14,8 @@ struct SpriteSheetCutterView: View {
     @ObservedObject var animationVM: AnimationPreviewViewModel
     var onSendToAnimate: () -> Void
     @State private var importedImage: CGImage?
+    @State private var savedFrameIndex: Int?
+    @State private var showingSaveAllConfirm = false
     
     var body: some View {
         NavigationStack {
@@ -136,6 +139,20 @@ struct SpriteSheetCutterView: View {
                 }
                 
                 Button {
+                    showingSaveAllConfirm = true
+                } label: {
+                    Image(systemName: "square.and.arrow.down.on.square")
+                        .font(.caption)
+                }
+                .confirmationDialog("Save All Frames", isPresented: $showingSaveAllConfirm) {
+                    Button("Save \(viewModel.cutFrames.count) Frames to Photos") {
+                        for (_, img) in viewModel.cutFrames {
+                            UIImageWriteToSavedPhotosAlbum(UIImage(cgImage: img), nil, nil, nil)
+                        }
+                    }
+                }
+                
+                Button {
                     if viewModel.selectedFrameIndices.count == viewModel.cutFrames.count {
                         viewModel.deselectAll()
                     } else {
@@ -214,6 +231,29 @@ struct SpriteSheetCutterView: View {
                 viewModel.toggleFrameSelection(index)
             }
         }
+        .contextMenu {
+            Button {
+                UIImageWriteToSavedPhotosAlbum(UIImage(cgImage: image), nil, nil, nil)
+                savedFrameIndex = index
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    if savedFrameIndex == index { savedFrameIndex = nil }
+                }
+            } label: {
+                Label("Save to Photos", systemImage: "square.and.arrow.down")
+            }
+            
+            ShareLink(item: Image(decorative: image, scale: 1.0), preview: SharePreview("Frame \(index)", image: Image(decorative: image, scale: 1.0))) {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
+        }
+        .overlay {
+            if savedFrameIndex == index {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.white, .green)
+                    .transition(.scale.combined(with: .opacity))
+            }
+        }
     }
     
     // MARK: - Animation Clips
@@ -257,11 +297,7 @@ struct SpriteSheetCutterView: View {
             HStack(spacing: 6) {
                 // Preview this clip
                 Button {
-                    let clipFrames = clip.frameIndices.compactMap { idx -> (AnimationFrame, CGImage)? in
-                        guard idx < viewModel.cutFrames.count else { return nil }
-                        return viewModel.cutFrames[idx]
-                    }
-                    animationVM.loadClip(clip, frames: clipFrames)
+                    animationVM.loadWithClips(viewModel.cutFrames, clips: viewModel.clips, activeClip: clip)
                     onSendToAnimate()
                 } label: {
                     Label("Preview", systemImage: "play.fill")

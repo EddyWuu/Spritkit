@@ -156,6 +156,25 @@ nonisolated enum ImageProcessingService {
                 )
             }
             
+            // Deduplicate: merge buckets that averaged to the same hex color.
+            // This prevents showing 128 copies of the same color when the image
+            // only has 3 actual colors.
+            var seen: [String: Int] = [:] // hex -> index in deduped array
+            var deduped: [PaletteColor] = []
+            for color in colors {
+                if let existingIdx = seen[color.hex] {
+                    // Merge frequency into the existing entry
+                    deduped[existingIdx] = PaletteColor(
+                        hex: color.hex,
+                        frequency: deduped[existingIdx].frequency + color.frequency
+                    )
+                } else {
+                    seen[color.hex] = deduped.count
+                    deduped.append(color)
+                }
+            }
+            colors = deduped
+            
             // Sort by frequency (most common first)
             colors.sort { $0.frequency > $1.frequency }
             
