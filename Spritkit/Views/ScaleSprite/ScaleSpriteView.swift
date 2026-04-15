@@ -10,6 +10,7 @@ import SwiftUI
 struct ScaleSpriteView: View {
     
     @StateObject private var viewModel = ScaleSpriteViewModel()
+    @State private var showingHelp = false
     
     var body: some View {
         NavigationStack {
@@ -32,6 +33,12 @@ struct ScaleSpriteView: View {
                 }
                 
                 ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        showingHelp = true
+                    } label: {
+                        Image(systemName: "questionmark.circle")
+                    }
+                    
                     ExportButton(image: viewModel.outputImage)
                     
                     ImagePickerView(
@@ -40,6 +47,10 @@ struct ScaleSpriteView: View {
                         systemImage: "photo.badge.plus"
                     )
                 }
+            }
+            .sheet(isPresented: $showingHelp) {
+                HelpSheetView.scaleSprite
+                    .presentationDetents([.medium, .large])
             }
             .onChange(of: viewModel.sourceImage) { _, newImage in
                 viewModel.outputImage = nil
