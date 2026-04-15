@@ -10,6 +10,7 @@ import SwiftUI
 struct AnimationPreviewView: View {
     
     @ObservedObject var viewModel: AnimationPreviewViewModel
+    @State private var showingHelp = false
     
     var body: some View {
         NavigationStack {
@@ -46,6 +47,18 @@ struct AnimationPreviewView: View {
                         .tint(.red)
                     }
                 }
+                
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showingHelp = true
+                    } label: {
+                        Image(systemName: "questionmark.circle")
+                    }
+                }
+            }
+            .sheet(isPresented: $showingHelp) {
+                HelpSheetView.animationPreview
+                    .presentationDetents([.medium, .large])
             }
         }
     }
