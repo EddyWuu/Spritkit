@@ -10,6 +10,7 @@ import SwiftUI
 struct ExtractPaletteView: View {
     
     @StateObject private var viewModel = ExtractPaletteViewModel()
+    @State private var showingHelp = false
     
     var body: some View {
         NavigationStack {
@@ -43,12 +44,22 @@ struct ExtractPaletteView: View {
                 }
                 
                 ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        showingHelp = true
+                    } label: {
+                        Image(systemName: "questionmark.circle")
+                    }
+                    
                     ImagePickerView(
                         selectedImage: $viewModel.sourceImage,
                         label: "Import",
                         systemImage: "photo.badge.plus"
                     )
                 }
+            }
+            .sheet(isPresented: $showingHelp) {
+                HelpSheetView.extractPalette
+                    .presentationDetents([.medium, .large])
             }
             .onChange(of: viewModel.sourceImage) { _, _ in
                 viewModel.palette = nil
