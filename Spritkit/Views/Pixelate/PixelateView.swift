@@ -10,6 +10,7 @@ import SwiftUI
 struct PixelateView: View {
     
     @StateObject private var viewModel = PixelateViewModel()
+    @State private var showingHelp = false
     
     var body: some View {
         NavigationStack {
@@ -36,6 +37,12 @@ struct PixelateView: View {
                 }
                 
                 ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        showingHelp = true
+                    } label: {
+                        Image(systemName: "questionmark.circle")
+                    }
+                    
                     ExportButton(image: viewModel.outputImage)
                     
                     ImagePickerView(
@@ -44,6 +51,10 @@ struct PixelateView: View {
                         systemImage: "photo.badge.plus"
                     )
                 }
+            }
+            .sheet(isPresented: $showingHelp) {
+                HelpSheetView.pixelate
+                    .presentationDetents([.medium, .large])
             }
             .onChange(of: viewModel.sourceImage) { _, _ in
                 viewModel.outputImage = nil
