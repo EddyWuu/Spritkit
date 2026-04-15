@@ -16,6 +16,7 @@ struct SpriteSheetCutterView: View {
     @State private var importedImage: CGImage?
     @State private var savedFrameIndex: Int?
     @State private var showingSaveAllConfirm = false
+    @State private var showingHelp = false
     
     var body: some View {
         NavigationStack {
@@ -53,12 +54,22 @@ struct SpriteSheetCutterView: View {
                 }
                 
                 ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        showingHelp = true
+                    } label: {
+                        Image(systemName: "questionmark.circle")
+                    }
+                    
                     ImagePickerView(
                         selectedImage: $importedImage,
                         label: "Import",
                         systemImage: "photo.badge.plus"
                     )
                 }
+            }
+            .sheet(isPresented: $showingHelp) {
+                HelpSheetView.spriteSheetCutter
+                    .presentationDetents([.medium, .large])
             }
             .onChange(of: importedImage) { _, newImage in
                 if let img = newImage {
