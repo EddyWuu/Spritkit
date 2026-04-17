@@ -70,11 +70,12 @@ extension HelpSheetView {
     static var pixelate: HelpSheetView {
         HelpSheetView(
             title: "Pixelate",
-            subtitle: "Turn any photo into pixel art by applying a mosaic block effect.",
+            subtitle: "Turn any photo into pixel art using 9 different pixelation algorithms — each with live previews.",
             items: [
                 HelpItem(icon: "photo.badge.plus", title: "Import a Photo", description: "Tap the import button in the toolbar to pick a photo from your library or camera."),
-                HelpItem(icon: "slider.horizontal.3", title: "Adjust Block Size", description: "Use the slider to control how large each pixel block is. Higher values = chunkier pixels, lower values = more detail."),
-                HelpItem(icon: "wand.and.stars", title: "Apply", description: "Tap the Pixelate button to process. The output preview updates in the canvas above."),
+                HelpItem(icon: "square.grid.3x3.topleft.filled", title: "Choose a Method", description: "Tap the method selector to browse all 9 pixelation styles. Each shows a live preview of your image so you can compare: Standard, Kuwahara (painterly), K-Means (sharp clusters), Voronoi (organic cells), SLIC (content-aware), Dither (retro), Edge Detect, and more."),
+                HelpItem(icon: "slider.horizontal.3", title: "Adjust Block Size", description: "Use the slider to control intensity. Higher values = chunkier pixels. Previews update automatically as you drag."),
+                HelpItem(icon: "wand.and.stars", title: "Apply", description: "Tap Apply to process at full resolution with the selected method. The canvas shows the result."),
                 HelpItem(icon: "square.and.arrow.up", title: "Export", description: "Use the share button to save or share the pixelated result."),
                 HelpItem(icon: "xmark.circle", title: "Start Over", description: "Tap the red ✕ in the toolbar to clear everything and start fresh with a new image.")
             ]
