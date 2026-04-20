@@ -12,6 +12,7 @@ struct PixelateView: View {
     @StateObject private var viewModel = PixelateViewModel()
     @State private var showingHelp = false
     @State private var showingMethodPicker = false
+    @State private var showingOriginal = false
     
     var body: some View {
         NavigationStack {
@@ -74,12 +75,32 @@ struct PixelateView: View {
     
     @ViewBuilder
     private var canvasSection: some View {
-        if let displayImage = viewModel.outputImage ?? viewModel.sourceImage {
+        if let source = viewModel.sourceImage {
+            let displayImage = (showingOriginal ? source : viewModel.outputImage) ?? source
             SpriteCanvasView(image: displayImage)
                 .frame(maxHeight: .infinity)
                 .overlay(alignment: .topLeading) {
                     dimensionBadge
                         .padding(8)
+                }
+                .overlay(alignment: .topTrailing) {
+                    // Before/After toggle (only when output exists)
+                    if viewModel.outputImage != nil {
+                        Button {
+                            showingOriginal.toggle()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: showingOriginal ? "photo" : "sparkles")
+                                Text(showingOriginal ? "Before" : "After")
+                                    .font(.caption.weight(.semibold))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.ultraThinMaterial, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(8)
+                    }
                 }
                 .overlay {
                     if viewModel.isProcessing {
@@ -209,7 +230,6 @@ struct PixelateView: View {
             ScrollView {
                 LazyVGrid(columns: [
                     GridItem(.flexible(), spacing: 12),
-                    GridItem(.flexible(), spacing: 12),
                     GridItem(.flexible(), spacing: 12)
                 ], spacing: 14) {
                     ForEach(PixelationMethod.allCases) { method in
@@ -238,25 +258,67 @@ struct PixelateView: View {
             showingMethodPicker = false
         } label: {
             VStack(spacing: 6) {
-                // Preview thumbnail or placeholder
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(uiColor: .tertiarySystemBackground))
-                        .aspectRatio(1, contentMode: .fit)
+                // Before / After side-by-side
+                HStack(spacing: 2) {
+                    // Before (original)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color(uiColor: .tertiarySystemBackground))
+                            .aspectRatio(1, contentMode: .fit)
+                        
+                        if let source = viewModel.sourceImage {
+                            Image(decorative: source, scale: 1.0)
+                                .resizable()
+                                .interpolation(.none)
+                                .aspectRatio(contentMode: .fill)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        
+                        // "Before" label
+                        VStack {
+                            Spacer()
+                            Text("Before")
+                                .font(.system(size: 7, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 3)
+                                .padding(.vertical, 1)
+                                .background(.black.opacity(0.6), in: Capsule())
+                                .padding(2)
+                        }
+                    }
                     
-                    if let preview = viewModel.previews[method] {
-                        Image(decorative: preview, scale: 1.0)
-                            .resizable()
-                            .interpolation(.none)
-                            .aspectRatio(contentMode: .fill)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                    } else if viewModel.isGeneratingPreviews {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                    } else {
-                        Image(systemName: method.icon)
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
+                    // After (pixelated preview)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color(uiColor: .tertiarySystemBackground))
+                            .aspectRatio(1, contentMode: .fit)
+                        
+                        if let preview = viewModel.previews[method] {
+                            Image(decorative: preview, scale: 1.0)
+                                .resizable()
+                                .interpolation(.none)
+                                .aspectRatio(contentMode: .fill)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                        } else if viewModel.isGeneratingPreviews {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                        } else {
+                            Image(systemName: method.icon)
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                        }
+                        
+                        // "After" label
+                        VStack {
+                            Spacer()
+                            Text("After")
+                                .font(.system(size: 7, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 3)
+                                .padding(.vertical, 1)
+                                .background(.black.opacity(0.6), in: Capsule())
+                                .padding(2)
+                        }
                     }
                 }
                 .overlay(
