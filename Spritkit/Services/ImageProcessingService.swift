@@ -691,9 +691,9 @@ nonisolated enum ImageProcessingService {
                 gray = blurred
             }
             
-            // Sobel operator
-            var outPixels = [UInt8](repeating: 0, count: w * h * 4)
-            
+            // Sobel operator -> produce edge magnitude map
+            var magMap = [UInt8](repeating: 0, count: w * h)
+            var maxMag = 0.0
             for y in 1..<(h - 1) {
                 for x in 1..<(w - 1) {
                     let tl = gray[(y - 1) * w + (x - 1)]
@@ -707,13 +707,40 @@ nonisolated enum ImageProcessingService {
                     
                     let gx = -tl - 2 * l - bl + tr + 2 * r + br
                     let gy = -tl - 2 * t - tr + bl + 2 * b + br
-                    let mag = min(255, Int(sqrt(gx * gx + gy * gy)))
+                    let mag = sqrt(gx * gx + gy * gy)
+                    if mag > maxMag { maxMag = mag }
+                    magMap[y * w + x] = UInt8(min(255, Int(mag)))
+                }
+            }
+            
+            // Normalize and composite edges over the original image so we keep color context
+            var outPixels = [UInt8](repeating: 0, count: w * h * 4)
+            // Avoid divide-by-zero
+            let norm = maxMag > 0 ? maxMag : 1.0
+            for y in 0..<h {
+                for x in 0..<w {
+                    let offSrc = y * bpr + x * bpp
+                    let origR = Double(ptr[offSrc])
+                    let origG = Double(ptr[offSrc + 1])
+                    let origB = Double(ptr[offSrc + 2])
+                    let origA = bpp >= 4 ? Double(ptr[offSrc + 3]) : 255.0
                     
-                    let off = (y * w + x) * 4
-                    outPixels[off]     = UInt8(mag)
-                    outPixels[off + 1] = UInt8(mag)
-                    outPixels[off + 2] = UInt8(mag)
-                    outPixels[off + 3] = 255
+                    let mag = Double(magMap[y * w + x])
+                    // edgeStrength in 0..1 using normalized magnitude
+                    let edgeStrength = min(1.0, mag / norm)
+                    // boost contrast of edges slightly
+                    let strength = pow(edgeStrength, 0.9) * 1.0
+                    
+                    // Blend white edge over original color: out = lerp(orig, white, strength)
+                    let outR = (1.0 - strength) * origR + strength * 255.0
+                    let outG = (1.0 - strength) * origG + strength * 255.0
+                    let outB = (1.0 - strength) * origB + strength * 255.0
+                    
+                    let outOff = (y * w + x) * 4
+                    outPixels[outOff]     = UInt8(clamping: Int(outR))
+                    outPixels[outOff + 1] = UInt8(clamping: Int(outG))
+                    outPixels[outOff + 2] = UInt8(clamping: Int(outB))
+                    outPixels[outOff + 3] = UInt8(clamping: Int(origA))
                 }
             }
             
