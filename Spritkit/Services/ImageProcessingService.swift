@@ -182,97 +182,217 @@ nonisolated enum ImageProcessingService {
             let w = image.width
             let h = image.height
             let block = max(Int(blockSize), 1)
-            let k = max(min(16, (w * h) / (block * block)), 2) // auto-pick k from image size
-            
+
             guard let data = image.dataProvider?.data,
                   let ptr = CFDataGetBytePtr(data) else {
                 throw ProcessingError.pixelAccessFailed
             }
-            
+
             let bpp = image.bitsPerPixel / 8
             let bpr = image.bytesPerRow
-            
-            // Collect all pixels
-            var allPixels: [(r: Double, g: Double, b: Double)] = []
-            allPixels.reserveCapacity(w * h)
-            for y in 0..<h {
-                for x in 0..<w {
-                    let off = y * bpr + x * bpp
-                    allPixels.append((Double(ptr[off]), Double(ptr[off + 1]), Double(ptr[off + 2])))
+
+            // If the block size is large relative to the image, or the image is huge,
+            // aggregate pixels into block cells and run K-Means on those averages
+            // This reduces sample count from w*h down to (w/block)*(h/block)
+            let useBlockAggregation = block >= 4 || (w * h) > 1_000_000
+
+            var samples: [(r: Double, g: Double, b: Double, a: Double)] = []
+            var blocksX = 0, blocksY = 0
+
+            if useBlockAggregation {
+                blocksX = max(1, (w + block - 1) / block)
+                blocksY = max(1, (h + block - 1) / block)
+                samples.reserveCapacity(blocksX * blocksY)
+
+                for by in 0..<blocksY {
+                    let y0 = by * block
+                    let y1 = min(h, y0 + block)
+                    for bx in 0..<blocksX {
+                        let x0 = bx * block
+                        let x1 = min(w, x0 + block)
+                        var sumR = 0.0, sumG = 0.0, sumB = 0.0, sumA = 0.0
+                        var cnt = 0.0
+                        for y in y0..<y1 {
+                            for x in x0..<x1 {
+                                let off = y * bpr + x * bpp
+                                sumR += Double(ptr[off])
+                                sumG += Double(ptr[off + 1])
+                                sumB += Double(ptr[off + 2])
+                                sumA += bpp >= 4 ? Double(ptr[off + 3]) : 255.0
+                                cnt += 1
+                            }
+                        }
+                        if cnt > 0 {
+                            samples.append((sumR / cnt, sumG / cnt, sumB / cnt, sumA / cnt))
+                        }
+                    }
+                }
+            } else {
+                // Small block: sample pixels but cap total samples for performance
+                let maxSamples = 200_000 // safe upper bound for per-pixel sampling
+                let total = w * h
+                if total <= maxSamples {
+                    samples.reserveCapacity(total)
+                    for y in 0..<h {
+                        for x in 0..<w {
+                            let off = y * bpr + x * bpp
+                            samples.append((Double(ptr[off]), Double(ptr[off + 1]), Double(ptr[off + 2]), bpp >= 4 ? Double(ptr[off + 3]) : 255.0))
+                        }
+                    }
+                } else {
+                    // Strided sampling: pick an approximate sqrt stride to limit samples
+                    let stride = Int(sqrt(Double(total) / Double(maxSamples)))
+                    let step = max(1, stride)
+                    for y in stride(from: 0, to: h, by: step) {
+                        for x in stride(from: 0, to: w, by: step) {
+                            let off = y * bpr + x * bpp
+                            samples.append((Double(ptr[off]), Double(ptr[off + 1]), Double(ptr[off + 2]), bpp >= 4 ? Double(ptr[off + 3]) : 255.0))
+                        }
+                    }
                 }
             }
-            
-            // Initialize centroids with evenly spaced samples
-            var centroids: [(r: Double, g: Double, b: Double)] = []
-            let step = max(allPixels.count / k, 1)
+
+            guard !samples.isEmpty else { throw ProcessingError.pixelAccessFailed }
+
+            // Decide k (number of clusters) and cap it reasonably
+            var k = max(2, min(16, Int((w * h) / (block * block))))
+            k = min(k, max(2, samples.count / 4))
+
+            // Initialize centroids by evenly picking samples
+            var centroids: [(r: Double, g: Double, b: Double, a: Double)] = []
+            centroids.reserveCapacity(k)
+            let step = max(1, samples.count / k)
             for i in 0..<k {
-                centroids.append(allPixels[min(i * step, allPixels.count - 1)])
+                let idx = min(i * step, samples.count - 1)
+                let s = samples[idx]
+                centroids.append((s.r, s.g, s.b, s.a))
             }
-            
-            // Run K-Means (8 iterations — fast convergence for pixel art)
-            for _ in 0..<8 {
+
+            // K-Means iterations with caps and early exit
+            let maxIters = 8
+            var assignments = [Int](repeating: -1, count: samples.count)
+            for _ in 0..<maxIters {
+                var changed = false
+
+                // reset sums
                 var sums = [KSum](repeating: KSum(), count: k)
-                for px in allPixels {
+
+                for (i, px) in samples.enumerated() {
                     var bestDist = Double.greatestFiniteMagnitude
                     var bestIdx = 0
                     for (ci, c) in centroids.enumerated() {
-                        let d = (px.r - c.r) * (px.r - c.r) + (px.g - c.g) * (px.g - c.g) + (px.b - c.b) * (px.b - c.b)
+                        let dr = px.r - c.r; let dg = px.g - c.g; let db = px.b - c.b
+                        let d = dr * dr + dg * dg + db * db
                         if d < bestDist { bestDist = d; bestIdx = ci }
                     }
+                    if assignments[i] != bestIdx { changed = true }
+                    assignments[i] = bestIdx
                     sums[bestIdx].r += px.r
                     sums[bestIdx].g += px.g
                     sums[bestIdx].b += px.b
                     sums[bestIdx].count += 1
                 }
+
+                // update centroids
                 for i in 0..<k {
                     if sums[i].count > 0 {
                         let n = Double(sums[i].count)
-                        centroids[i] = (sums[i].r / n, sums[i].g / n, sums[i].b / n)
+                        centroids[i] = (sums[i].r / n, sums[i].g / n, sums[i].b / n, 255.0)
                     }
                 }
+
+                if !changed { break }
             }
-            
-            // Block-average then snap to nearest centroid
+
+            // Now paint output: if we used blockAggregation, map each block to nearest centroid and fill full block.
             var outPixels = [UInt8](repeating: 0, count: w * h * 4)
-            
-            for by in stride(from: 0, to: h, by: block) {
-                for bx in stride(from: 0, to: w, by: block) {
-                    var avgR = 0.0, avgG = 0.0, avgB = 0.0, avgA = 0.0, cnt = 0.0
-                    let endY = min(by + block, h)
-                    let endX = min(bx + block, w)
-                    
-                    for y in by..<endY {
-                        for x in bx..<endX {
-                            let off = y * bpr + x * bpp
-                            avgR += Double(ptr[off])
-                            avgG += Double(ptr[off + 1])
-                            avgB += Double(ptr[off + 2])
-                            avgA += bpp >= 4 ? Double(ptr[off + 3]) : 255.0
-                            cnt += 1
+
+            if useBlockAggregation {
+                // compute centroid colors as RGBA bytes
+                let centroidBytes: [RGBA] = centroids.map { c in
+                    RGBA(r: UInt8(clamping: Int(c.r)), g: UInt8(clamping: Int(c.g)), b: UInt8(clamping: Int(c.b)), a: 255)
+                }
+
+                for by in 0..<blocksY {
+                    let y0 = by * block
+                    let y1 = min(h, y0 + block)
+                    for bx in 0..<blocksX {
+                        let x0 = bx * block
+                        let x1 = min(w, x0 + block)
+                        // find sample index corresponding to this block
+                        let sampleIdx = by * blocksX + bx
+                        let assigned: Int = {
+                            if sampleIdx < assignments.count {
+                                return assignments[sampleIdx]
+                            } else {
+                                // fallback: nearest centroid by distance
+                                let s = samples[min(sampleIdx, samples.count - 1)]
+                                var bestDist = Double.greatestFiniteMagnitude
+                                var bestIdx = 0
+                                for (ci, c) in centroids.enumerated() {
+                                    let dr = s.r - c.r; let dg = s.g - c.g; let db = s.b - c.b
+                                    let d = dr * dr + dg * dg + db * db
+                                    if d < bestDist { bestDist = d; bestIdx = ci }
+                                }
+                                return bestIdx
+                            }
+                        }()
+
+                        let col = centroidBytes[max(0, min(centroidBytes.count - 1, assigned))]
+                        for y in y0..<y1 {
+                            for x in x0..<x1 {
+                                let outOff = (y * w + x) * 4
+                                outPixels[outOff] = col.r
+                                outPixels[outOff + 1] = col.g
+                                outPixels[outOff + 2] = col.b
+                                outPixels[outOff + 3] = col.a
+                            }
                         }
                     }
-                    avgR /= cnt; avgG /= cnt; avgB /= cnt; avgA /= cnt
-                    
-                    // Snap to nearest centroid
-                    var bestDist = Double.greatestFiniteMagnitude
-                    var bestC = centroids[0]
-                    for c in centroids {
-                        let d = (avgR - c.r) * (avgR - c.r) + (avgG - c.g) * (avgG - c.g) + (avgB - c.b) * (avgB - c.b)
-                        if d < bestDist { bestDist = d; bestC = c }
-                    }
-                    
-                    for y in by..<endY {
-                        for x in bx..<endX {
-                            let outOff = (y * w + x) * 4
-                            outPixels[outOff]     = UInt8(clamping: Int(bestC.r))
-                            outPixels[outOff + 1] = UInt8(clamping: Int(bestC.g))
-                            outPixels[outOff + 2] = UInt8(clamping: Int(bestC.b))
-                            outPixels[outOff + 3] = UInt8(clamping: Int(avgA))
+                }
+            } else {
+                // Per-pixel block-average then snap to centroid (original behavior optimized)
+                // Block-average then map to nearest centroid
+                for by in stride(from: 0, to: h, by: block) {
+                    for bx in stride(from: 0, to: w, by: block) {
+                        var avgR = 0.0, avgG = 0.0, avgB = 0.0, avgA = 0.0, cnt = 0.0
+                        let endY = min(by + block, h)
+                        let endX = min(bx + block, w)
+
+                        for y in by..<endY {
+                            for x in bx..<endX {
+                                let off = y * bpr + x * bpp
+                                avgR += Double(ptr[off])
+                                avgG += Double(ptr[off + 1])
+                                avgB += Double(ptr[off + 2])
+                                avgA += bpp >= 4 ? Double(ptr[off + 3]) : 255.0
+                                cnt += 1
+                            }
+                        }
+                        avgR /= cnt; avgG /= cnt; avgB /= cnt; avgA /= cnt
+
+                        // find nearest centroid
+                        var bestDist = Double.greatestFiniteMagnitude
+                        var bestC = centroids[0]
+                        for c in centroids {
+                            let dr = avgR - c.r; let dg = avgG - c.g; let db = avgB - c.b
+                            let d = dr * dr + dg * dg + db * db
+                            if d < bestDist { bestDist = d; bestC = c }
+                        }
+
+                        for y in by..<endY {
+                            for x in bx..<endX {
+                                let outOff = (y * w + x) * 4
+                                outPixels[outOff] = UInt8(clamping: Int(bestC.r))
+                                outPixels[outOff + 1] = UInt8(clamping: Int(bestC.g))
+                                outPixels[outOff + 2] = UInt8(clamping: Int(bestC.b))
+                                outPixels[outOff + 3] = UInt8(clamping: Int(avgA))
+                            }
                         }
                     }
                 }
             }
-            
+
             return try renderRGBA(pixels: &outPixels, width: w, height: h)
         }.value
     }
