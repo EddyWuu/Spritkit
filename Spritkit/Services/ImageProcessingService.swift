@@ -241,8 +241,8 @@ nonisolated enum ImageProcessingService {
                     }
                 } else {
                     // Strided sampling: pick an approximate sqrt stride to limit samples
-                    let stride = Int(sqrt(Double(total) / Double(maxSamples)))
-                    let step = max(1, stride)
+                    let sampleStride = Int(sqrt(Double(total) / Double(maxSamples)))
+                    let step = max(1, sampleStride)
                     for y in stride(from: 0, to: h, by: step) {
                         for x in stride(from: 0, to: w, by: step) {
                             let off = y * bpr + x * bpp
