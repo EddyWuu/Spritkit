@@ -19,16 +19,7 @@ nonisolated enum ImageProcessingService {
     // MARK: - Internal Helper Types
     
     private struct KSum { var r: Double = 0; var g: Double = 0; var b: Double = 0; var count: Int = 0 }
-    private struct CenterSum { var x: Double = 0; var y: Double = 0; var l: Double = 0; var a: Double = 0; var b: Double = 0; var count: Int = 0 }
-    private struct ClusterSum { var r: Double = 0; var g: Double = 0; var b: Double = 0; var a: Double = 0; var count: Int = 0 }
     private struct RGBA { var r: UInt8; var g: UInt8; var b: UInt8; var a: UInt8 }
-    private struct VoronoiSeed {
-        var x: Int; var y: Int
-        var sumR: Double = 0; var sumG: Double = 0; var sumB: Double = 0; var sumA: Double = 0
-        var count: Int = 0
-    }
-    private struct PixelLab { var l: Double; var a: Double; var b: Double }
-    private struct SLICCenter { var x: Double; var y: Double; var l: Double; var a: Double; var b: Double }
     // MARK: - Shared CIContext (reuse for performance)
     
     private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
@@ -44,9 +35,6 @@ nonisolated enum ImageProcessingService {
         case .kuwaharaFilter:   return try await pixelateKuwahara(image: image, blockSize: clamped)
         case .kMeansClustering: return try await pixelateKMeans(image: image, blockSize: clamped)
         case .quantizeUpscale:  return try await pixelateQuantizeUpscale(image: image, blockSize: clamped)
-        case .bilateralGrid:    return try await pixelateBilateralGrid(image: image, blockSize: clamped)
-        case .voronoi:          return try await pixelateVoronoi(image: image, blockSize: clamped)
-        case .superpixelSLIC:   return try await pixelateSLIC(image: image, blockSize: clamped)
         case .edgeDetection:    return try await detectEdges(image: image, blockSize: clamped)
         case .dither:           return try await pixelateDither(image: image, blockSize: clamped)
         }
@@ -459,415 +447,6 @@ nonisolated enum ImageProcessingService {
         }.value
     }
     
-    // MARK: - Bilateral Filter + Grid
-    
-    // Bilateral filter smooths flat regions while preserving edges, then block-average.
-    private static func pixelateBilateralGrid(image: CGImage, blockSize: CGFloat) async throws -> CGImage {
-        return try await Task.detached {
-            let w = image.width
-            let h = image.height
-            let block = max(Int(blockSize), 1)
-            
-            guard let data = image.dataProvider?.data,
-                  let ptr = CFDataGetBytePtr(data) else {
-                throw ProcessingError.pixelAccessFailed
-            }
-            
-            let bpp = image.bitsPerPixel / 8
-            let bpr = image.bytesPerRow
-            let spatialSigma = Double(block)
-            let colorSigma = 30.0
-            let radius = max(Int(blockSize / 2), 2)
-            
-            // 1. Bilateral filter pass
-            var filtered = [UInt8](repeating: 0, count: w * h * 4)
-            
-            for y in 0..<h {
-                for x in 0..<w {
-                    let centerOff = y * bpr + x * bpp
-                    let cR = Double(ptr[centerOff])
-                    let cG = Double(ptr[centerOff + 1])
-                    let cB = Double(ptr[centerOff + 2])
-                    let cA = bpp >= 4 ? ptr[centerOff + 3] : UInt8(255)
-                    
-                    var wSum = 0.0, rSum = 0.0, gSum = 0.0, bSum = 0.0
-                    
-                    let yStart = max(0, y - radius)
-                    let yEnd = min(h - 1, y + radius)
-                    let xStart = max(0, x - radius)
-                    let xEnd = min(w - 1, x + radius)
-                    
-                    for ny in yStart...yEnd {
-                        for nx in xStart...xEnd {
-                            let nOff = ny * bpr + nx * bpp
-                            let nR = Double(ptr[nOff])
-                            let nG = Double(ptr[nOff + 1])
-                            let nB = Double(ptr[nOff + 2])
-                            
-                            let spatialDist = Double((nx - x) * (nx - x) + (ny - y) * (ny - y))
-                            let colorDist = (nR - cR) * (nR - cR) + (nG - cG) * (nG - cG) + (nB - cB) * (nB - cB)
-                            
-                            let weight = exp(-spatialDist / (2 * spatialSigma * spatialSigma)) *
-                                         exp(-colorDist / (2 * colorSigma * colorSigma))
-                            
-                            wSum += weight
-                            rSum += nR * weight
-                            gSum += nG * weight
-                            bSum += nB * weight
-                        }
-                    }
-                    
-                    let outOff = (y * w + x) * 4
-                    filtered[outOff]     = UInt8(clamping: Int(rSum / wSum))
-                    filtered[outOff + 1] = UInt8(clamping: Int(gSum / wSum))
-                    filtered[outOff + 2] = UInt8(clamping: Int(bSum / wSum))
-                    filtered[outOff + 3] = cA
-                }
-            }
-            
-            // 2. Block-average the filtered result
-            var outPixels = [UInt8](repeating: 0, count: w * h * 4)
-            
-            for by in stride(from: 0, to: h, by: block) {
-                for bx in stride(from: 0, to: w, by: block) {
-                    var avgR = 0.0, avgG = 0.0, avgB = 0.0, avgA = 0.0, cnt = 0.0
-                    let endY = min(by + block, h)
-                    let endX = min(bx + block, w)
-                    
-                    for y in by..<endY {
-                        for x in bx..<endX {
-                            let off = (y * w + x) * 4
-                            avgR += Double(filtered[off])
-                            avgG += Double(filtered[off + 1])
-                            avgB += Double(filtered[off + 2])
-                            avgA += Double(filtered[off + 3])
-                            cnt += 1
-                        }
-                    }
-                    avgR /= cnt; avgG /= cnt; avgB /= cnt; avgA /= cnt
-                    
-                    for y in by..<endY {
-                        for x in bx..<endX {
-                            let outOff = (y * w + x) * 4
-                            outPixels[outOff]     = UInt8(clamping: Int(avgR))
-                            outPixels[outOff + 1] = UInt8(clamping: Int(avgG))
-                            outPixels[outOff + 2] = UInt8(clamping: Int(avgB))
-                            outPixels[outOff + 3] = UInt8(clamping: Int(avgA))
-                        }
-                    }
-                }
-            }
-            
-            return try renderRGBA(pixels: &outPixels, width: w, height: h)
-        }.value
-    }
-    
-    // MARK: - Voronoi Pixelation
-    
-    // Place seed points on a grid (jittered), color each pixel by nearest seed's average.
-    private static func pixelateVoronoi(image: CGImage, blockSize: CGFloat) async throws -> CGImage {
-        return try await Task.detached {
-            let w = image.width
-            let h = image.height
-            let block = max(Int(blockSize), 2)
-            
-            guard let data = image.dataProvider?.data,
-                  let ptr = CFDataGetBytePtr(data) else {
-                throw ProcessingError.pixelAccessFailed
-            }
-            
-            let bpp = image.bitsPerPixel / 8
-            let bpr = image.bytesPerRow
-            
-            // Generate jittered grid seeds
-            var seeds: [VoronoiSeed] = []
-            let jitter = block / 4
-            for sy in stride(from: block / 2, to: h, by: block) {
-                for sx in stride(from: block / 2, to: w, by: block) {
-                    let jx = sx + Int.random(in: -jitter...jitter)
-                    let jy = sy + Int.random(in: -jitter...jitter)
-                    seeds.append(VoronoiSeed(x: min(max(jx, 0), w - 1), y: min(max(jy, 0), h - 1)))
-                }
-            }
-            
-            // Assign each pixel to its nearest seed
-            var assignments = [Int](repeating: 0, count: w * h)
-            
-            for y in 0..<h {
-                for x in 0..<w {
-                    var bestDist = Int.max
-                    var bestIdx = 0
-                    for (i, s) in seeds.enumerated() {
-                        let d = (x - s.x) * (x - s.x) + (y - s.y) * (y - s.y)
-                        if d < bestDist { bestDist = d; bestIdx = i }
-                    }
-                    assignments[y * w + x] = bestIdx
-                    
-                    let off = y * bpr + x * bpp
-                    seeds[bestIdx].sumR += Double(ptr[off])
-                    seeds[bestIdx].sumG += Double(ptr[off + 1])
-                    seeds[bestIdx].sumB += Double(ptr[off + 2])
-                    seeds[bestIdx].sumA += bpp >= 4 ? Double(ptr[off + 3]) : 255.0
-                    seeds[bestIdx].count += 1
-                }
-            }
-            
-            // Compute average color per seed, then paint
-            var outPixels = [UInt8](repeating: 0, count: w * h * 4)
-            
-            let seedColors: [RGBA] = seeds.map { s in
-                guard s.count > 0 else { return RGBA(r: 0, g: 0, b: 0, a: 255) }
-                let n = Double(s.count)
-                return RGBA(r: UInt8(clamping: Int(s.sumR / n)),
-                            g: UInt8(clamping: Int(s.sumG / n)),
-                            b: UInt8(clamping: Int(s.sumB / n)),
-                            a: UInt8(clamping: Int(s.sumA / n)))
-            }
-            
-            for y in 0..<h {
-                for x in 0..<w {
-                    let sIdx = assignments[y * w + x]
-                    let c = seedColors[sIdx]
-                    let off = (y * w + x) * 4
-                    outPixels[off] = c.r; outPixels[off + 1] = c.g
-                    outPixels[off + 2] = c.b; outPixels[off + 3] = c.a
-                }
-            }
-            
-            return try renderRGBA(pixels: &outPixels, width: w, height: h)
-        }.value
-    }
-    
-    // MARK: - Superpixel SLIC
-    
-    // Simplified SLIC: seeds on grid, iteratively refine assignments based on
-    // spatial + color distance. Produces irregular cells that follow image content.
-    private static func pixelateSLIC(image: CGImage, blockSize: CGFloat) async throws -> CGImage {
-        return try await Task.detached {
-            let w = image.width
-            let h = image.height
-            let S = max(Int(blockSize), 2) // grid spacing
-            let m = 10.0 // compactness
-            
-            guard let data = image.dataProvider?.data,
-                  let ptr = CFDataGetBytePtr(data) else {
-                throw ProcessingError.pixelAccessFailed
-            }
-            
-            let bpp = image.bitsPerPixel / 8
-            let bpr = image.bytesPerRow
-            
-            // Read all pixels into Lab-like space (just use RGB scaled for speed)
-            var lab = [PixelLab](repeating: PixelLab(l: 0, a: 0, b: 0), count: w * h)
-            for y in 0..<h {
-                for x in 0..<w {
-                    let off = y * bpr + x * bpp
-                    lab[y * w + x] = PixelLab(l: Double(ptr[off]), a: Double(ptr[off + 1]), b: Double(ptr[off + 2]))
-                }
-            }
-            
-            // Initialize cluster centers on grid
-            var centers: [SLICCenter] = []
-            for cy in stride(from: S / 2, to: h, by: S) {
-                for cx in stride(from: S / 2, to: w, by: S) {
-                    let p = lab[cy * w + cx]
-                    centers.append(SLICCenter(x: Double(cx), y: Double(cy), l: p.l, a: p.a, b: p.b))
-                }
-            }
-            
-            var labels = [Int](repeating: -1, count: w * h)
-            var distances = [Double](repeating: .greatestFiniteMagnitude, count: w * h)
-            
-            // 4 SLIC iterations (sufficient for visual quality)
-            for _ in 0..<4 {
-                distances = [Double](repeating: .greatestFiniteMagnitude, count: w * h)
-                
-                for (ci, c) in centers.enumerated() {
-                    let xMin = max(0, Int(c.x) - S)
-                    let xMax = min(w - 1, Int(c.x) + S)
-                    let yMin = max(0, Int(c.y) - S)
-                    let yMax = min(h - 1, Int(c.y) + S)
-                    
-                    for y in yMin...yMax {
-                        for x in xMin...xMax {
-                            let p = lab[y * w + x]
-                            let dc = (p.l - c.l) * (p.l - c.l) + (p.a - c.a) * (p.a - c.a) + (p.b - c.b) * (p.b - c.b)
-                            let ds = (Double(x) - c.x) * (Double(x) - c.x) + (Double(y) - c.y) * (Double(y) - c.y)
-                            let D = dc + (m * m / Double(S * S)) * ds
-                            
-                            if D < distances[y * w + x] {
-                                distances[y * w + x] = D
-                                labels[y * w + x] = ci
-                            }
-                        }
-                    }
-                }
-                
-                // Update centers
-                var sums = [CenterSum](repeating: CenterSum(), count: centers.count)
-                for y in 0..<h {
-                    for x in 0..<w {
-                        let ci = labels[y * w + x]
-                        guard ci >= 0 else { continue }
-                        let p = lab[y * w + x]
-                        sums[ci].x += Double(x); sums[ci].y += Double(y)
-                        sums[ci].l += p.l; sums[ci].a += p.a; sums[ci].b += p.b
-                        sums[ci].count += 1
-                    }
-                }
-                for i in 0..<centers.count {
-                    if sums[i].count > 0 {
-                        let n = Double(sums[i].count)
-                        centers[i] = SLICCenter(x: sums[i].x / n, y: sums[i].y / n,
-                                            l: sums[i].l / n, a: sums[i].a / n, b: sums[i].b / n)
-                    }
-                }
-            }
-            
-            // Paint each pixel with its cluster's average color (from original image)
-            var clusterSums = [ClusterSum](repeating: ClusterSum(), count: centers.count)
-            for y in 0..<h {
-                for x in 0..<w {
-                    let ci = labels[y * w + x]
-                    guard ci >= 0 else { continue }
-                    let off = y * bpr + x * bpp
-                    clusterSums[ci].r += Double(ptr[off])
-                    clusterSums[ci].g += Double(ptr[off + 1])
-                    clusterSums[ci].b += Double(ptr[off + 2])
-                    clusterSums[ci].a += bpp >= 4 ? Double(ptr[off + 3]) : 255.0
-                    clusterSums[ci].count += 1
-                }
-            }
-            
-            var outPixels = [UInt8](repeating: 0, count: w * h * 4)
-            let clusterColors: [RGBA] = clusterSums.map { s in
-                guard s.count > 0 else { return RGBA(r: 0, g: 0, b: 0, a: 255) }
-                let n = Double(s.count)
-                return RGBA(r: UInt8(clamping: Int(s.r / n)),
-                             g: UInt8(clamping: Int(s.g / n)),
-                             b: UInt8(clamping: Int(s.b / n)),
-                             a: UInt8(clamping: Int(s.a / n)))
-            }
-            
-            for y in 0..<h {
-                for x in 0..<w {
-                    let ci = labels[y * w + x]
-                    let c = ci >= 0 ? clusterColors[ci] : RGBA(r: 0, g: 0, b: 0, a: 255)
-                    let off = (y * w + x) * 4
-                    outPixels[off] = c.r; outPixels[off + 1] = c.g
-                    outPixels[off + 2] = c.b; outPixels[off + 3] = c.a
-                }
-            }
-            
-            return try renderRGBA(pixels: &outPixels, width: w, height: h)
-        }.value
-    }
-    
-    // MARK: - Edge Detection (Sobel)
-    
-    // Sobel edge detection — produces white edges on black background.
-    // blockSize controls a pre-blur to reduce noise (higher = fewer edges).
-    private static func detectEdges(image: CGImage, blockSize: CGFloat) async throws -> CGImage {
-        return try await Task.detached {
-            let w = image.width
-            let h = image.height
-            
-            guard let data = image.dataProvider?.data,
-                  let ptr = CFDataGetBytePtr(data) else {
-                throw ProcessingError.pixelAccessFailed
-            }
-            
-            let bpp = image.bitsPerPixel / 8
-            let bpr = image.bytesPerRow
-            
-            // Convert to grayscale
-            var gray = [Double](repeating: 0, count: w * h)
-            for y in 0..<h {
-                for x in 0..<w {
-                    let off = y * bpr + x * bpp
-                    gray[y * w + x] = 0.299 * Double(ptr[off]) + 0.587 * Double(ptr[off + 1]) + 0.114 * Double(ptr[off + 2])
-                }
-            }
-            
-            // Optional box blur based on blockSize (reduces noise)
-            let blurRadius = max(Int(blockSize / 4), 0)
-            if blurRadius > 0 {
-                var blurred = gray
-                for y in 0..<h {
-                    for x in 0..<w {
-                        var sum = 0.0, cnt = 0.0
-                        for dy in -blurRadius...blurRadius {
-                            for dx in -blurRadius...blurRadius {
-                                let nx = x + dx, ny = y + dy
-                                if nx >= 0 && nx < w && ny >= 0 && ny < h {
-                                    sum += gray[ny * w + nx]
-                                    cnt += 1
-                                }
-                            }
-                        }
-                        blurred[y * w + x] = sum / cnt
-                    }
-                }
-                gray = blurred
-            }
-            
-            // Sobel operator -> produce edge magnitude map
-            var magMap = [UInt8](repeating: 0, count: w * h)
-            var maxMag = 0.0
-            for y in 1..<(h - 1) {
-                for x in 1..<(w - 1) {
-                    let tl = gray[(y - 1) * w + (x - 1)]
-                    let t  = gray[(y - 1) * w + x]
-                    let tr = gray[(y - 1) * w + (x + 1)]
-                    let l  = gray[y * w + (x - 1)]
-                    let r  = gray[y * w + (x + 1)]
-                    let bl = gray[(y + 1) * w + (x - 1)]
-                    let b  = gray[(y + 1) * w + x]
-                    let br = gray[(y + 1) * w + (x + 1)]
-                    
-                    let gx = -tl - 2 * l - bl + tr + 2 * r + br
-                    let gy = -tl - 2 * t - tr + bl + 2 * b + br
-                    let mag = sqrt(gx * gx + gy * gy)
-                    if mag > maxMag { maxMag = mag }
-                    magMap[y * w + x] = UInt8(min(255, Int(mag)))
-                }
-            }
-            
-            // Normalize and composite edges over the original image so we keep color context
-            var outPixels = [UInt8](repeating: 0, count: w * h * 4)
-            // Avoid divide-by-zero
-            let norm = maxMag > 0 ? maxMag : 1.0
-            for y in 0..<h {
-                for x in 0..<w {
-                    let offSrc = y * bpr + x * bpp
-                    let origR = Double(ptr[offSrc])
-                    let origG = Double(ptr[offSrc + 1])
-                    let origB = Double(ptr[offSrc + 2])
-                    let origA = bpp >= 4 ? Double(ptr[offSrc + 3]) : 255.0
-                    
-                    let mag = Double(magMap[y * w + x])
-                    // edgeStrength in 0..1 using normalized magnitude
-                    let edgeStrength = min(1.0, mag / norm)
-                    // boost contrast of edges slightly
-                    let strength = pow(edgeStrength, 0.9) * 1.0
-                    
-                    // Blend white edge over original color: out = lerp(orig, white, strength)
-                    let outR = (1.0 - strength) * origR + strength * 255.0
-                    let outG = (1.0 - strength) * origG + strength * 255.0
-                    let outB = (1.0 - strength) * origB + strength * 255.0
-                    
-                    let outOff = (y * w + x) * 4
-                    outPixels[outOff]     = UInt8(clamping: Int(outR))
-                    outPixels[outOff + 1] = UInt8(clamping: Int(outG))
-                    outPixels[outOff + 2] = UInt8(clamping: Int(outB))
-                    outPixels[outOff + 3] = UInt8(clamping: Int(origA))
-                }
-            }
-            
-            return try renderRGBA(pixels: &outPixels, width: w, height: h)
-        }.value
-    }
-    
     // MARK: - Ordered Dither (Bayer)
     
     // 4×4 Bayer ordered dithering with reduced color palette. Classic retro look.
@@ -916,6 +495,94 @@ nonisolated enum ImageProcessingService {
                     let outOff = (y * w + x) * 4
                     outPixels[outOff] = qR; outPixels[outOff + 1] = qG
                     outPixels[outOff + 2] = qB; outPixels[outOff + 3] = a
+                }
+            }
+            
+            return try renderRGBA(pixels: &outPixels, width: w, height: h)
+        }.value
+    }
+    
+    // MARK: - Edge Detection (Sobel Overlay)
+    
+    // Sobel edge detection blended over the original image so edges highlight
+    // while color context remains. blockSize acts as a pre-blur radius (denoise).
+    private static func detectEdges(image: CGImage, blockSize: CGFloat) async throws -> CGImage {
+        return try await Task.detached {
+            let w = image.width
+            let h = image.height
+            
+            guard let data = image.dataProvider?.data,
+                  let ptr = CFDataGetBytePtr(data) else {
+                throw ProcessingError.pixelAccessFailed
+            }
+            
+            let bpp = image.bitsPerPixel / 8
+            let bpr = image.bytesPerRow
+            
+            // 1. Build a luminance map, optionally box-blurred to reduce noise.
+            var luma = [Double](repeating: 0, count: w * h)
+            for y in 0..<h {
+                for x in 0..<w {
+                    let off = y * bpr + x * bpp
+                    let r = Double(ptr[off])
+                    let g = Double(ptr[off + 1])
+                    let b = Double(ptr[off + 2])
+                    luma[y * w + x] = 0.299 * r + 0.587 * g + 0.114 * b
+                }
+            }
+            
+            let blurRadius = max(0, min(4, Int(blockSize / 8)))
+            if blurRadius > 0 {
+                var blurred = [Double](repeating: 0, count: w * h)
+                for y in 0..<h {
+                    for x in 0..<w {
+                        var sum = 0.0, cnt = 0.0
+                        let ys = max(0, y - blurRadius), ye = min(h - 1, y + blurRadius)
+                        let xs = max(0, x - blurRadius), xe = min(w - 1, x + blurRadius)
+                        for ny in ys...ye {
+                            for nx in xs...xe {
+                                sum += luma[ny * w + nx]; cnt += 1
+                            }
+                        }
+                        blurred[y * w + x] = sum / cnt
+                    }
+                }
+                luma = blurred
+            }
+            
+            // 2. Sobel gradient magnitude per pixel, blended over the original.
+            var outPixels = [UInt8](repeating: 0, count: w * h * 4)
+            for y in 0..<h {
+                for x in 0..<w {
+                    // Clamp neighbor sampling at borders.
+                    let xm = max(0, x - 1), xp = min(w - 1, x + 1)
+                    let ym = max(0, y - 1), yp = min(h - 1, y + 1)
+                    
+                    let tl = luma[ym * w + xm], tc = luma[ym * w + x], tr = luma[ym * w + xp]
+                    let ml = luma[y * w + xm],  mr = luma[y * w + xp]
+                    let bl = luma[yp * w + xm], bc = luma[yp * w + x], br = luma[yp * w + xp]
+                    
+                    let gx = (tr + 2 * mr + br) - (tl + 2 * ml + bl)
+                    let gy = (bl + 2 * bc + br) - (tl + 2 * tc + tr)
+                    let mag = min(1.0, sqrt(gx * gx + gy * gy) / 255.0)
+                    
+                    let srcOff = y * bpr + x * bpp
+                    let oR = Double(ptr[srcOff])
+                    let oG = Double(ptr[srcOff + 1])
+                    let oB = Double(ptr[srcOff + 2])
+                    let oA = bpp >= 4 ? ptr[srcOff + 3] : UInt8(255)
+                    
+                    // Blend white over the original proportional to edge strength.
+                    let t = mag
+                    let outR = oR + (255.0 - oR) * t
+                    let outG = oG + (255.0 - oG) * t
+                    let outB = oB + (255.0 - oB) * t
+                    
+                    let outOff = (y * w + x) * 4
+                    outPixels[outOff]     = UInt8(clamping: Int(outR))
+                    outPixels[outOff + 1] = UInt8(clamping: Int(outG))
+                    outPixels[outOff + 2] = UInt8(clamping: Int(outB))
+                    outPixels[outOff + 3] = oA
                 }
             }
             
