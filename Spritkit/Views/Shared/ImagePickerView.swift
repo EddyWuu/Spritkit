@@ -34,7 +34,7 @@ struct ImagePickerView: View {
         do {
             if let data = try await item.loadTransferable(type: Data.self),
                let uiImage = UIImage(data: data),
-               let cgImage = uiImage.cgImage {
+               let cgImage = uiImage.normalizedCGImage() {
                 await MainActor.run {
                     selectedImage = cgImage
                 }
@@ -42,5 +42,26 @@ struct ImagePickerView: View {
         } catch {
             print("Failed to load image: \(error)")
         }
+    }
+}
+
+private extension UIImage {
+    // Returns a CGImage whose pixel buffer matches the visual orientation.
+    // Photos taken in portrait store a rotated (landscape) buffer plus an
+    // orientation flag; grabbing `.cgImage` directly ignores that flag and
+    // yields a rotated/flipped image. Redrawing bakes the orientation in.
+    func normalizedCGImage() -> CGImage? {
+        // Already upright — use the backing image directly (no redraw needed).
+        if imageOrientation == .up {
+            return cgImage
+        }
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let normalized = renderer.image { _ in
+            draw(in: CGRect(origin: .zero, size: size))
+        }
+        return normalized.cgImage
     }
 }

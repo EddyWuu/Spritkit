@@ -62,11 +62,9 @@ struct PixelateView: View {
                 methodPickerSheet
                     .presentationDetents([.large])
             }
-            .onChange(of: viewModel.sourceImage) { _, newImage in
+            .onChange(of: viewModel.sourceImage) { _, _ in
                 viewModel.outputImage = nil
-                if newImage != nil {
-                    viewModel.generatePreviews()
-                }
+                showingOriginal = false
             }
         }
     }
@@ -76,37 +74,36 @@ struct PixelateView: View {
     @ViewBuilder
     private var canvasSection: some View {
         if let source = viewModel.sourceImage {
-            if let output = viewModel.outputImage {
-                // Show an interactive before/after split for better comparison
-                BeforeAfterView(original: source, processed: output)
-                    .frame(maxHeight: .infinity)
-                    .overlay(alignment: .topLeading) {
-                        dimensionBadge
-                            .padding(8)
-                    }
-                    .overlay {
-                        if viewModel.isProcessing {
-                            ProgressView("Processing…")
-                                .padding()
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            let displayed = (showingOriginal ? source : (viewModel.outputImage ?? source))
+            SpriteCanvasView(image: displayed)
+                .frame(maxHeight: .infinity)
+                .overlay(alignment: .topLeading) {
+                    dimensionBadge
+                        .padding(8)
+                }
+                .overlay(alignment: .topTrailing) {
+                    // Simple toggle to compare against the original (only once processed)
+                    if viewModel.outputImage != nil {
+                        Button {
+                            showingOriginal.toggle()
+                        } label: {
+                            Label(showingOriginal ? "Original" : "Result",
+                                  systemImage: showingOriginal ? "photo" : "wand.and.stars")
+                                .font(.caption.weight(.medium))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(.ultraThinMaterial, in: Capsule())
                         }
+                        .padding(8)
                     }
-            } else {
-                // Only source available
-                SpriteCanvasView(image: source)
-                    .frame(maxHeight: .infinity)
-                    .overlay(alignment: .topLeading) {
-                        dimensionBadge
-                            .padding(8)
+                }
+                .overlay {
+                    if viewModel.isProcessing {
+                        ProgressView("Processing…")
+                            .padding()
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
                     }
-                    .overlay {
-                        if viewModel.isProcessing {
-                            ProgressView("Processing…")
-                                .padding()
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-                        }
-                    }
-            }
+                }
         } else {
             emptyState
         }
@@ -191,14 +188,15 @@ struct PixelateView: View {
                     Text("64").font(.caption2)
                 }
                 .onChange(of: viewModel.blockSize) { _, _ in
-                    // Debounce: regenerate previews after slider settles
+                    // Clear the stale result so the user re-applies with the new size
                     viewModel.outputImage = nil
-                    viewModel.generatePreviews()
+                    showingOriginal = false
                 }
             }
             
             // Apply button
             Button {
+                showingOriginal = false
                 viewModel.pixelate()
             } label: {
                 HStack {
@@ -225,16 +223,37 @@ struct PixelateView: View {
     
     private var methodPickerSheet: some View {
         NavigationStack {
-            ScrollView {
-                LazyVGrid(columns: [
-                    GridItem(.flexible(), spacing: 12),
-                    GridItem(.flexible(), spacing: 12)
-                ], spacing: 14) {
-                    ForEach(PixelationMethod.allCases) { method in
-                        methodCard(method)
+            List {
+                ForEach(PixelationMethod.allCases) { method in
+                    Button {
+                        viewModel.selectedMethod = method
+                        showingMethodPicker = false
+                    } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: method.icon)
+                                .font(.title3)
+                                .frame(width: 32)
+                                .foregroundStyle(viewModel.selectedMethod == method ? Color.accentColor : .secondary)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(method.displayName)
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Text(method.shortDescription)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer()
+                            if viewModel.selectedMethod == method {
+                                Image(systemName: "checkmark")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                        }
+                        .padding(.vertical, 4)
                     }
+                    .buttonStyle(.plain)
                 }
-                .padding()
             }
             .navigationTitle("Pixelation Method")
             .navigationBarTitleDisplayMode(.inline)
@@ -246,108 +265,6 @@ struct PixelateView: View {
                 }
             }
         }
-    }
-    
-    private func methodCard(_ method: PixelationMethod) -> some View {
-        let isSelected = viewModel.selectedMethod == method
-        return Button {
-            viewModel.selectedMethod = method
-            showingMethodPicker = false
-        } label: {
-            VStack(spacing: 8) {
-                GeometryReader { geo in
-                    // Use square thumbnail boxes so very wide images don't shrink the preview height.
-                    let cardWidth = geo.size.width
-                    let spacing: CGFloat = 6
-                    let boxWidth = (cardWidth - spacing) / 2
-                    let boxSize = min(boxWidth, 120)
-
-                    HStack(spacing: spacing) {
-                        // Before
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color(uiColor: .tertiarySystemBackground))
-                            if let source = viewModel.sourceImage {
-                                Image(decorative: source, scale: 1.0)
-                                    .resizable()
-                                    .interpolation(.none)
-                                    .scaledToFit()
-                                    .frame(width: boxSize, height: boxSize)
-                                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                            } else {
-                                Image(systemName: method.icon)
-                                    .font(.title3)
-                                    .foregroundStyle(.secondary)
-                            }
-                            VStack {
-                                Spacer()
-                                Text("Before")
-                                    .font(.system(size: 9, weight: .medium))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.black.opacity(0.6), in: Capsule())
-                                    .padding(6)
-                            }
-                        }
-                        .frame(width: boxSize, height: boxSize)
-
-                        // After
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color(uiColor: .tertiarySystemBackground))
-                            if let preview = viewModel.previews[method] {
-                                Image(decorative: preview, scale: 1.0)
-                                    .resizable()
-                                    .interpolation(.none)
-                                    .scaledToFit()
-                                    .frame(width: boxSize, height: boxSize)
-                                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                            } else if viewModel.isGeneratingPreviews {
-                                ProgressView()
-                            } else {
-                                Image(systemName: method.icon)
-                                    .font(.title3)
-                                    .foregroundStyle(.secondary)
-                            }
-                            VStack {
-                                Spacer()
-                                Text("After")
-                                    .font(.system(size: 9, weight: .medium))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.black.opacity(0.6), in: Capsule())
-                                    .padding(6)
-                            }
-                        }
-                        .frame(width: boxSize, height: boxSize)
-                    }
-                    .frame(height: boxSize)
-                    .frame(maxWidth: .infinity)
-                }
-                .frame(height: 140)
-
-                // Label
-                VStack(spacing: 2) {
-                    Text(method.displayName)
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(1)
-                    Text(method.shortDescription)
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(.horizontal, 6)
-            }
-            .padding(8)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 3)
-            )
-        }
-        .buttonStyle(.plain)
     }
 }
 
