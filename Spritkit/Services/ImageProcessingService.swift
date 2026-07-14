@@ -29,14 +29,18 @@ nonisolated enum ImageProcessingService {
     // Apply a pixelation method to an image.
     static func pixelate(image: CGImage, blockSize: CGFloat, method: PixelationMethod = .standard) async throws -> CGImage {
         let clamped = min(max(blockSize, 1), 256)
+        // Normalize to a canonical RGBA layout up front. Photos/camera images are
+        // frequently stored as BGRA (or premultiplied), so reading byte offset 0 as
+        // "red" actually returned blue — that's the bug that tinted images blue.
+        let src = normalizedImage(image) ?? image
         
         switch method {
-        case .standard:         return try await pixelateStandard(image: image, blockSize: clamped)
-        case .kuwaharaFilter:   return try await pixelateKuwahara(image: image, blockSize: clamped)
-        case .kMeansClustering: return try await pixelateKMeans(image: image, blockSize: clamped)
-        case .quantizeUpscale:  return try await pixelateQuantizeUpscale(image: image, blockSize: clamped)
-        case .edgeDetection:    return try await detectEdges(image: image, blockSize: clamped)
-        case .dither:           return try await pixelateDither(image: image, blockSize: clamped)
+        case .standard:         return try await pixelateStandard(image: src, blockSize: clamped)
+        case .kuwaharaFilter:   return try await pixelateKuwahara(image: src, blockSize: clamped)
+        case .kMeansClustering: return try await pixelateKMeans(image: src, blockSize: clamped)
+        case .quantizeUpscale:  return try await pixelateQuantizeUpscale(image: src, blockSize: clamped)
+        case .edgeDetection:    return try await detectEdges(image: src, blockSize: clamped)
+        case .dither:           return try await pixelateDither(image: src, blockSize: clamped)
         }
     }
     
@@ -88,17 +92,17 @@ nonisolated enum ImageProcessingService {
     // Edge-preserving, produces a painterly/blocky look.
     private static func pixelateKuwahara(image: CGImage, blockSize: CGFloat) async throws -> CGImage {
         return try await Task.detached {
-            let w = image.width
-            let h = image.height
-            let radius = max(Int(blockSize / 2), 1)
-            
-            guard let inData = image.dataProvider?.data,
-                  let inPtr = CFDataGetBytePtr(inData) else {
+            let origW = image.width
+            let origH = image.height
+            // Kuwahara is O(N · radius²). Cap the working resolution and radius so it
+            // stays fast on large photos, then upscale the result nearest-neighbor.
+            guard let norm = normalizedRGBA(from: image, maxDimension: 720) else {
                 throw ProcessingError.pixelAccessFailed
             }
-            
-            let bpp = image.bitsPerPixel / 8
-            let bpr = image.bytesPerRow
+            let pixels = norm.pixels
+            let w = norm.width
+            let h = norm.height
+            let radius = max(1, min(Int(blockSize / 2), 6))
             
             var outPixels = [UInt8](repeating: 0, count: w * h * 4)
             
@@ -122,12 +126,11 @@ nonisolated enum ImageProcessingService {
                         
                         for qy in quad.yRange {
                             for qx in quad.xRange {
-                                let off = qy * bpr + qx * bpp
-                                let r = Double(inPtr[off])
-                                let g = Double(inPtr[off + 1])
-                                let b = Double(inPtr[off + 2])
-                                let a = bpp >= 4 ? Double(inPtr[off + 3]) : 255.0
-                                sumR += r; sumG += g; sumB += b; sumA += a
+                                let off = (qy * w + qx) * 4
+                                let r = Double(pixels[off])
+                                let g = Double(pixels[off + 1])
+                                let b = Double(pixels[off + 2])
+                                sumR += r; sumG += g; sumB += b; sumA += Double(pixels[off + 3])
                                 sumR2 += r * r; sumG2 += g * g; sumB2 += b * b
                                 count += 1
                             }
@@ -157,7 +160,8 @@ nonisolated enum ImageProcessingService {
                 }
             }
             
-            return try renderRGBA(pixels: &outPixels, width: w, height: h)
+            let small = try renderRGBA(pixels: &outPixels, width: w, height: h)
+            return try nearestUpscale(small, toWidth: origW, toHeight: origH)
         }.value
     }
     
@@ -407,13 +411,12 @@ nonisolated enum ImageProcessingService {
             }
             
             // 2. Quantize colors (reduce to 16 levels per channel)
-            guard let data = smallCG.dataProvider?.data,
-                  let ptr = CFDataGetBytePtr(data) else {
+            guard let norm = normalizedRGBA(from: smallCG) else {
                 throw ProcessingError.pixelAccessFailed
             }
-            
-            let bpp = smallCG.bitsPerPixel / 8
-            let bpr = smallCG.bytesPerRow
+            let ptr = norm.pixels
+            let bpp = 4
+            let bpr = smallW * 4
             var quantized = [UInt8](repeating: 0, count: smallW * smallH * 4)
             
             for y in 0..<smallH {
@@ -508,32 +511,27 @@ nonisolated enum ImageProcessingService {
     // while color context remains. blockSize acts as a pre-blur radius (denoise).
     private static func detectEdges(image: CGImage, blockSize: CGFloat) async throws -> CGImage {
         return try await Task.detached {
-            let w = image.width
-            let h = image.height
-            
-            guard let data = image.dataProvider?.data,
-                  let ptr = CFDataGetBytePtr(data) else {
+            let origW = image.width
+            let origH = image.height
+            // Cap working resolution so the blur + Sobel passes stay fast on big photos.
+            guard let norm = normalizedRGBA(from: image, maxDimension: 1400) else {
                 throw ProcessingError.pixelAccessFailed
             }
+            let pixels = norm.pixels
+            let w = norm.width
+            let h = norm.height
             
-            let bpp = image.bitsPerPixel / 8
-            let bpr = image.bytesPerRow
-            
-            // 1. Build a luminance map, optionally box-blurred to reduce noise.
+            // 1. Luminance map.
             var luma = [Double](repeating: 0, count: w * h)
-            for y in 0..<h {
-                for x in 0..<w {
-                    let off = y * bpr + x * bpp
-                    let r = Double(ptr[off])
-                    let g = Double(ptr[off + 1])
-                    let b = Double(ptr[off + 2])
-                    luma[y * w + x] = 0.299 * r + 0.587 * g + 0.114 * b
-                }
+            for i in 0..<(w * h) {
+                let o = i * 4
+                luma[i] = 0.299 * Double(pixels[o]) + 0.587 * Double(pixels[o + 1]) + 0.114 * Double(pixels[o + 2])
             }
             
-            let blurRadius = max(0, min(4, Int(blockSize / 8)))
+            // 2. Optional light box blur to reduce noise (small radius, capped).
+            let blurRadius = max(0, min(2, Int(blockSize / 12)))
             if blurRadius > 0 {
-                var blurred = [Double](repeating: 0, count: w * h)
+                var blurred = luma
                 for y in 0..<h {
                     for x in 0..<w {
                         var sum = 0.0, cnt = 0.0
@@ -550,11 +548,10 @@ nonisolated enum ImageProcessingService {
                 luma = blurred
             }
             
-            // 2. Sobel gradient magnitude per pixel, blended over the original.
+            // 3. Sobel gradient magnitude, blended (white) over the original color.
             var outPixels = [UInt8](repeating: 0, count: w * h * 4)
             for y in 0..<h {
                 for x in 0..<w {
-                    // Clamp neighbor sampling at borders.
                     let xm = max(0, x - 1), xp = min(w - 1, x + 1)
                     let ym = max(0, y - 1), yp = min(h - 1, y + 1)
                     
@@ -566,35 +563,81 @@ nonisolated enum ImageProcessingService {
                     let gy = (bl + 2 * bc + br) - (tl + 2 * tc + tr)
                     let mag = min(1.0, sqrt(gx * gx + gy * gy) / 255.0)
                     
-                    let srcOff = y * bpr + x * bpp
-                    let oR = Double(ptr[srcOff])
-                    let oG = Double(ptr[srcOff + 1])
-                    let oB = Double(ptr[srcOff + 2])
-                    let oA = bpp >= 4 ? ptr[srcOff + 3] : UInt8(255)
-                    
-                    // Blend white over the original proportional to edge strength.
-                    let t = mag
-                    let outR = oR + (255.0 - oR) * t
-                    let outG = oG + (255.0 - oG) * t
-                    let outB = oB + (255.0 - oB) * t
-                    
-                    let outOff = (y * w + x) * 4
-                    outPixels[outOff]     = UInt8(clamping: Int(outR))
-                    outPixels[outOff + 1] = UInt8(clamping: Int(outG))
-                    outPixels[outOff + 2] = UInt8(clamping: Int(outB))
-                    outPixels[outOff + 3] = oA
+                    let o = (y * w + x) * 4
+                    let oR = Double(pixels[o]), oG = Double(pixels[o + 1]), oB = Double(pixels[o + 2])
+                    outPixels[o]     = UInt8(clamping: Int(oR + (255.0 - oR) * mag))
+                    outPixels[o + 1] = UInt8(clamping: Int(oG + (255.0 - oG) * mag))
+                    outPixels[o + 2] = UInt8(clamping: Int(oB + (255.0 - oB) * mag))
+                    outPixels[o + 3] = pixels[o + 3]
                 }
             }
             
-            return try renderRGBA(pixels: &outPixels, width: w, height: h)
+            let small = try renderRGBA(pixels: &outPixels, width: w, height: h)
+            return try nearestUpscale(small, toWidth: origW, toHeight: origH)
         }.value
+    }
+    
+    // MARK: - Normalized Pixel Access
+    
+    // Returns a CGImage backed by a canonical RGBA8 buffer (sRGB, premultipliedLast,
+    // big-endian → bytes are R,G,B,A in memory). Redrawing through this fixes the
+    // channel-order bug where BGRA source images made photos look blue.
+    private static func normalizedImage(_ image: CGImage) -> CGImage? {
+        let w = image.width
+        let h = image.height
+        guard w > 0, h > 0, let cs = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
+                                  bytesPerRow: 0, space: cs, bitmapInfo: bitmapInfo) else { return nil }
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return ctx.makeImage()
+    }
+    
+    // Draws a CGImage into a raw RGBA8 byte array (R,G,B,A order, bytesPerRow = w*4).
+    // Optionally downsamples to a max long-side dimension — used to keep the
+    // expensive neighborhood filters (Kuwahara, Edge) fast on large photos.
+    private static func normalizedRGBA(from image: CGImage, maxDimension: Int? = nil) -> (pixels: [UInt8], width: Int, height: Int)? {
+        var w = image.width
+        var h = image.height
+        if let maxDim = maxDimension, maxDim > 0, max(w, h) > maxDim {
+            let scale = Double(maxDim) / Double(max(w, h))
+            w = max(1, Int((Double(image.width) * scale).rounded()))
+            h = max(1, Int((Double(image.height) * scale).rounded()))
+        }
+        guard w > 0, h > 0, let cs = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        var pixels = [UInt8](repeating: 0, count: w * h * 4)
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+        let success: Bool = pixels.withUnsafeMutableBytes { raw in
+            guard let ctx = CGContext(data: raw.baseAddress, width: w, height: h,
+                                      bitsPerComponent: 8, bytesPerRow: w * 4,
+                                      space: cs, bitmapInfo: bitmapInfo) else { return false }
+            ctx.interpolationQuality = (maxDimension != nil) ? .high : .none
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        return success ? (pixels, w, h) : nil
+    }
+    
+    // Upscales a CGImage to a target size using nearest-neighbor (crisp pixels).
+    private static func nearestUpscale(_ image: CGImage, toWidth: Int, toHeight: Int) throws -> CGImage {
+        guard toWidth > 0, toHeight > 0 else { throw ProcessingError.renderFailed }
+        guard let cs = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: toWidth, height: toHeight,
+                                  bitsPerComponent: 8, bytesPerRow: 0, space: cs,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            throw ProcessingError.renderFailed
+        }
+        ctx.interpolationQuality = .none
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: toWidth, height: toHeight))
+        guard let result = ctx.makeImage() else { throw ProcessingError.renderFailed }
+        return result
     }
     
     // MARK: - Render Helper
     
     // Render an RGBA pixel buffer into a CGImage.
-    private static func renderRGBA(pixels: inout [UInt8], width: Int, height: Int) throws -> CGImage {
-        guard let cs = CGColorSpace(name: CGColorSpace.sRGB) else { throw ProcessingError.renderFailed }
+    private static func renderRGBA(pixels: inout [UInt8], width: Int, height: Int) throws -> CGImage {        guard let cs = CGColorSpace(name: CGColorSpace.sRGB) else { throw ProcessingError.renderFailed }
         let ctx = CGContext(data: &pixels, width: width, height: height,
                            bitsPerComponent: 8, bytesPerRow: width * 4, space: cs,
                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
