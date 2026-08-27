@@ -19,6 +19,9 @@ class PixelateViewModel: ObservableObject {
     // Pixel block size — higher values = more pixelated
     @Published var blockSize: CGFloat = 8
     
+    // Target palette size for palette-based methods (Standard, K-Means, Quantize, Dither)
+    @Published var colorCount: Int = 16
+    
     // Selected pixelation method
     @Published var selectedMethod: PixelationMethod = .standard
     
@@ -52,7 +55,7 @@ class PixelateViewModel: ObservableObject {
         Task {
             do {
                 let result = try await ImageProcessingService.pixelate(
-                    image: source, blockSize: blockSize, method: selectedMethod
+                    image: source, blockSize: blockSize, method: selectedMethod, colorCount: colorCount
                 )
                 await MainActor.run {
                     self.outputImage = result
@@ -71,6 +74,7 @@ class PixelateViewModel: ObservableObject {
         sourceImage = nil
         outputImage = nil
         blockSize = 8
+        colorCount = 16
         selectedMethod = .standard
         errorMessage = nil
     }

@@ -194,6 +194,35 @@ struct PixelateView: View {
                 }
             }
             
+            // Color count slider (palette size) — used by palette-based methods
+            if viewModel.selectedMethod.usesPalette {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Colors")
+                            .font(.subheadline.weight(.medium))
+                        Spacer()
+                        Text("\(viewModel.colorCount)")
+                            .font(.subheadline.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Slider(value: Binding(
+                        get: { Double(viewModel.colorCount) },
+                        set: { viewModel.colorCount = Int($0) }
+                    ), in: 2...64, step: 1) {
+                        Text("Colors")
+                    } minimumValueLabel: {
+                        Text("2").font(.caption2)
+                    } maximumValueLabel: {
+                        Text("64").font(.caption2)
+                    }
+                    .onChange(of: viewModel.colorCount) { _, _ in
+                        viewModel.outputImage = nil
+                        showingOriginal = false
+                    }
+                }
+            }
+            
             // Apply button
             Button {
                 showingOriginal = false

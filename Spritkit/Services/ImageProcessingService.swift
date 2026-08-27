@@ -27,25 +27,28 @@ nonisolated enum ImageProcessingService {
     // MARK: - Pixelate (Unified Dispatcher)
     
     // Apply a pixelation method to an image.
-    static func pixelate(image: CGImage, blockSize: CGFloat, method: PixelationMethod = .standard) async throws -> CGImage {
+    // - colorCount: target palette size (2...64). Palette-based methods (standard,
+    //   quantize, dither) reduce the image to this many colors for a true pixel-art look.
+    static func pixelate(image: CGImage, blockSize: CGFloat, method: PixelationMethod = .standard, colorCount: Int = 16) async throws -> CGImage {
         let clamped = min(max(blockSize, 1), 256)
+        let colors = min(max(colorCount, 2), 64)
         // Normalize to a canonical RGBA layout up front. Photos/camera images are
         // frequently stored as BGRA (or premultiplied), so reading byte offset 0 as
         // "red" actually returned blue — that's the bug that tinted images blue.
         let src = normalizedImage(image) ?? image
         
         switch method {
-        case .standard:         return try await pixelateStandard(image: src, blockSize: clamped)
+        case .standard:         return try await pixelateStandard(image: src, blockSize: clamped, colorCount: colors)
         case .kuwaharaFilter:   return try await pixelateKuwahara(image: src, blockSize: clamped)
-        case .kMeansClustering: return try await pixelateKMeans(image: src, blockSize: clamped)
-        case .quantizeUpscale:  return try await pixelateQuantizeUpscale(image: src, blockSize: clamped)
+        case .kMeansClustering: return try await pixelateKMeans(image: src, blockSize: clamped, colorCount: colors)
+        case .quantizeUpscale:  return try await pixelateQuantizeUpscale(image: src, blockSize: clamped, colorCount: colors)
         case .edgeDetection:    return try await detectEdges(image: src, blockSize: clamped)
-        case .dither:           return try await pixelateDither(image: src, blockSize: clamped)
+        case .dither:           return try await pixelateDither(image: src, blockSize: clamped, colorCount: colors)
         }
     }
     
     // Generate a small preview thumbnail using a given method (for method picker).
-    static func pixelatePreview(image: CGImage, blockSize: CGFloat, method: PixelationMethod, maxDimension: Int = 120) async throws -> CGImage {
+    static func pixelatePreview(image: CGImage, blockSize: CGFloat, method: PixelationMethod, colorCount: Int = 16, maxDimension: Int = 120) async throws -> CGImage {
         // Downscale source first for speed
         let scale = CGFloat(maxDimension) / CGFloat(max(image.width, image.height))
         let thumb: CGImage
@@ -55,34 +58,38 @@ nonisolated enum ImageProcessingService {
             thumb = image
         }
         let thumbBlock = max(2, blockSize * scale)
-        return try await pixelate(image: thumb, blockSize: thumbBlock, method: method)
+        return try await pixelate(image: thumb, blockSize: thumbBlock, method: method, colorCount: colorCount)
     }
     
-    // MARK: - Standard (CIPixellate)
+    // MARK: - Standard (Downscale + Palette + Upscale)
     
+    // Produces true pixel art: shrink to block resolution, reduce to a cohesive
+    // median-cut palette, then upscale nearest-neighbor for crisp blocks.
     private static func pixelateStandard(image: CGImage, blockSize: CGFloat) async throws -> CGImage {
+        // Retained for compatibility; routes through the palette path with default colors.
+        return try await pixelateStandard(image: image, blockSize: blockSize, colorCount: 16)
+    }
+    
+    private static func pixelateStandard(image: CGImage, blockSize: CGFloat, colorCount: Int) async throws -> CGImage {
         return try await Task.detached {
-            let ciImage = CIImage(cgImage: image)
+            let origW = image.width
+            let origH = image.height
+            let block = max(Int(blockSize), 1)
+            let smallW = max(origW / block, 1)
+            let smallH = max(origH / block, 1)
             
-            guard let filter = CIFilter(name: "CIPixellate") else {
-                throw ProcessingError.filterUnavailable("CIPixellate")
+            // 1. Box-average downscale to block resolution (flat, clean cells).
+            guard let small = normalizedRGBA(from: image, exactWidth: smallW, exactHeight: smallH) else {
+                throw ProcessingError.pixelAccessFailed
             }
+            var buf = small.pixels
             
-            filter.setValue(ciImage, forKey: kCIInputImageKey)
-            filter.setValue(blockSize, forKey: kCIInputScaleKey)
-            filter.setValue(CIVector(x: 0, y: 0), forKey: kCIInputCenterKey)
+            // 2. Reduce to a cohesive palette and map every pixel to it.
+            applyPalette(to: &buf, width: smallW, height: smallH, colorCount: colorCount)
             
-            guard let output = filter.outputImage else {
-                throw ProcessingError.filterFailed("CIPixellate produced no output")
-            }
-            
-            let cropped = output.cropped(to: ciImage.extent)
-            
-            guard let cgResult = ciContext.createCGImage(cropped, from: cropped.extent) else {
-                throw ProcessingError.renderFailed
-            }
-            
-            return cgResult
+            // 3. Render small, then upscale nearest-neighbor to original size.
+            let smallImg = try renderRGBA(pixels: &buf, width: smallW, height: smallH)
+            return try nearestUpscale(smallImg, toWidth: origW, toHeight: origH)
         }.value
     }
     
@@ -170,6 +177,10 @@ nonisolated enum ImageProcessingService {
     // Clusters colors via K-Means, then maps each block to the nearest cluster centroid.
     // Edges stay sharper because similar-colored regions stay cohesive.
     private static func pixelateKMeans(image: CGImage, blockSize: CGFloat) async throws -> CGImage {
+        return try await pixelateKMeans(image: image, blockSize: blockSize, colorCount: 16)
+    }
+    
+    private static func pixelateKMeans(image: CGImage, blockSize: CGFloat, colorCount: Int) async throws -> CGImage {
         return try await Task.detached {
             let w = image.width
             let h = image.height
@@ -246,19 +257,38 @@ nonisolated enum ImageProcessingService {
 
             guard !samples.isEmpty else { throw ProcessingError.pixelAccessFailed }
 
-            // Decide k (number of clusters) and cap it reasonably
-            var k = max(2, min(16, Int((w * h) / (block * block))))
+            // Decide k (number of clusters). Bound by the requested palette size.
+            var k = max(2, min(colorCount, 32))
             k = min(k, max(2, samples.count / 4))
 
-            // Initialize centroids by evenly picking samples
+            // k-means++ initialization: spread initial centroids far apart for
+            // stable, vibrant results (random init caused muddy, inconsistent output).
             var centroids: [(r: Double, g: Double, b: Double, a: Double)] = []
             centroids.reserveCapacity(k)
-            let step = max(1, samples.count / k)
-            for i in 0..<k {
-                let idx = min(i * step, samples.count - 1)
-                let s = samples[idx]
+            let first = samples[samples.count / 2]
+            centroids.append((first.r, first.g, first.b, first.a))
+            var dist = [Double](repeating: Double.greatestFiniteMagnitude, count: samples.count)
+            while centroids.count < k {
+                let last = centroids[centroids.count - 1]
+                var total = 0.0
+                for (i, s) in samples.enumerated() {
+                    let dr = s.r - last.r, dg = s.g - last.g, db = s.b - last.b
+                    let d = dr * dr + dg * dg + db * db
+                    if d < dist[i] { dist[i] = d }
+                    total += dist[i]
+                }
+                guard total > 0 else { break }
+                // Pick the next centroid proportional to squared distance.
+                var target = Double.random(in: 0..<total)
+                var chosen = samples.count - 1
+                for (i, d) in dist.enumerated() {
+                    target -= d
+                    if target <= 0 { chosen = i; break }
+                }
+                let s = samples[chosen]
                 centroids.append((s.r, s.g, s.b, s.a))
             }
+            k = centroids.count
 
             // K-Means iterations with caps and early exit
             let maxIters = 8
@@ -391,8 +421,12 @@ nonisolated enum ImageProcessingService {
     
     // MARK: - Quantize + Upscale
     
-    // Downscale aggressively with Lanczos, quantize colors, upscale with nearest neighbor.
+    // Downscale with high-quality Lanczos, reduce to a median-cut palette, upscale nearest.
     private static func pixelateQuantizeUpscale(image: CGImage, blockSize: CGFloat) async throws -> CGImage {
+        return try await pixelateQuantizeUpscale(image: image, blockSize: blockSize, colorCount: 16)
+    }
+    
+    private static func pixelateQuantizeUpscale(image: CGImage, blockSize: CGFloat, colorCount: Int) async throws -> CGImage {
         return try await Task.detached {
             let w = image.width
             let h = image.height
@@ -400,7 +434,7 @@ nonisolated enum ImageProcessingService {
             let smallW = max(w / block, 1)
             let smallH = max(h / block, 1)
             
-            // 1. Downscale with Lanczos (high quality)
+            // 1. Downscale with Lanczos (high quality, smoother color selection).
             let ciImage = CIImage(cgImage: image)
             let scaleX = Double(smallW) / Double(w)
             let scaleY = Double(smallH) / Double(h)
@@ -410,98 +444,92 @@ nonisolated enum ImageProcessingService {
                 throw ProcessingError.renderFailed
             }
             
-            // 2. Quantize colors (reduce to 16 levels per channel)
+            // 2. Reduce to a cohesive median-cut palette (CIContext output may be BGRA,
+            //    so normalize first to guarantee correct channel order).
             guard let norm = normalizedRGBA(from: smallCG) else {
                 throw ProcessingError.pixelAccessFailed
             }
-            let ptr = norm.pixels
-            let bpp = 4
-            let bpr = smallW * 4
-            var quantized = [UInt8](repeating: 0, count: smallW * smallH * 4)
+            var buf = norm.pixels
+            applyPalette(to: &buf, width: norm.width, height: norm.height, colorCount: colorCount)
             
-            for y in 0..<smallH {
-                for x in 0..<smallW {
-                    let off = y * bpr + x * bpp
-                    let outOff = (y * smallW + x) * 4
-                    // Quantize to 16 levels (round to nearest multiple of 17)
-                    quantized[outOff]     = UInt8(min(255, (Int(ptr[off]) / 17) * 17))
-                    quantized[outOff + 1] = UInt8(min(255, (Int(ptr[off + 1]) / 17) * 17))
-                    quantized[outOff + 2] = UInt8(min(255, (Int(ptr[off + 2]) / 17) * 17))
-                    quantized[outOff + 3] = bpp >= 4 ? ptr[off + 3] : 255
-                }
-            }
+            let smallResult = try renderRGBA(pixels: &buf, width: norm.width, height: norm.height)
             
-            let smallResult = try renderRGBA(pixels: &quantized, width: smallW, height: smallH)
-            
-            // 3. Upscale with nearest neighbor
-            let upscaleFactor = CGFloat(block)
-            guard let cs = CGColorSpace(name: CGColorSpace.sRGB),
-                  let ctx = CGContext(data: nil, width: w, height: h,
-                                     bitsPerComponent: 8, bytesPerRow: 0, space: cs,
-                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
-                throw ProcessingError.renderFailed
-            }
-            ctx.interpolationQuality = .none
-            ctx.draw(smallResult, in: CGRect(x: 0, y: 0, width: CGFloat(smallW) * upscaleFactor,
-                                              height: CGFloat(smallH) * upscaleFactor))
-            
-            guard let result = ctx.makeImage() else { throw ProcessingError.renderFailed }
-            return result
+            // 3. Upscale nearest-neighbor to original size.
+            return try nearestUpscale(smallResult, toWidth: w, toHeight: h)
         }.value
     }
     
-    // MARK: - Ordered Dither (Bayer)
+    // MARK: - Floyd-Steinberg Dither
     
-    // 4×4 Bayer ordered dithering with reduced color palette. Classic retro look.
+    // Reduces the image to a median-cut palette using Floyd-Steinberg error
+    // diffusion. Far better than per-channel Bayer: gradients stay smooth and the
+    // palette stays cohesive. Works at block resolution, then upscales nearest.
     private static func pixelateDither(image: CGImage, blockSize: CGFloat) async throws -> CGImage {
+        return try await pixelateDither(image: image, blockSize: blockSize, colorCount: 16)
+    }
+    
+    private static func pixelateDither(image: CGImage, blockSize: CGFloat, colorCount: Int) async throws -> CGImage {
         return try await Task.detached {
-            let w = image.width
-            let h = image.height
+            let origW = image.width
+            let origH = image.height
+            let block = max(Int(blockSize), 1)
+            let w = max(origW / block, 1)
+            let h = max(origH / block, 1)
             
-            guard let data = image.dataProvider?.data,
-                  let ptr = CFDataGetBytePtr(data) else {
+            guard let small = normalizedRGBA(from: image, exactWidth: w, exactHeight: h) else {
                 throw ProcessingError.pixelAccessFailed
             }
             
-            let bpp = image.bitsPerPixel / 8
-            let bpr = image.bytesPerRow
+            // Build the palette from the downscaled buffer.
+            let palette = buildPalette(from: small.pixels, width: w, height: h, colorCount: colorCount)
+            guard !palette.isEmpty else { throw ProcessingError.pixelAccessFailed }
             
-            // 4x4 Bayer matrix (normalized to 0...1)
-            let bayer: [[Double]] = [
-                [ 0.0/16, 8.0/16, 2.0/16, 10.0/16],
-                [12.0/16, 4.0/16, 14.0/16,  6.0/16],
-                [ 3.0/16, 11.0/16, 1.0/16,  9.0/16],
-                [15.0/16, 7.0/16, 13.0/16,  5.0/16]
-            ]
-            
-            // Number of color levels derived from blockSize (fewer levels = more retro)
-            let levels = max(2, min(16, 18 - Int(blockSize / 4)))
-            let step = 255.0 / Double(levels - 1)
+            // Work in floating point so error can accumulate.
+            var work = [Double](repeating: 0, count: w * h * 3)
+            var alpha = [UInt8](repeating: 255, count: w * h)
+            for i in 0..<(w * h) {
+                let o = i * 4
+                work[i * 3]     = Double(small.pixels[o])
+                work[i * 3 + 1] = Double(small.pixels[o + 1])
+                work[i * 3 + 2] = Double(small.pixels[o + 2])
+                alpha[i] = small.pixels[o + 3]
+            }
             
             var outPixels = [UInt8](repeating: 0, count: w * h * 4)
             
             for y in 0..<h {
                 for x in 0..<w {
-                    let off = y * bpr + x * bpp
-                    let threshold = (bayer[y % 4][x % 4] - 0.5) * step
+                    let i = y * w + x
+                    let oldR = work[i * 3], oldG = work[i * 3 + 1], oldB = work[i * 3 + 2]
+                    let pi = nearestPaletteIndex(r: oldR, g: oldG, b: oldB, palette: palette)
+                    let np = palette[pi]
+                    let nr = Double(np.r), ng = Double(np.g), nb = Double(np.b)
                     
-                    let r = Double(ptr[off]) + threshold
-                    let g = Double(ptr[off + 1]) + threshold
-                    let b = Double(ptr[off + 2]) + threshold
-                    let a = bpp >= 4 ? ptr[off + 3] : UInt8(255)
+                    let outOff = i * 4
+                    outPixels[outOff]     = np.r
+                    outPixels[outOff + 1] = np.g
+                    outPixels[outOff + 2] = np.b
+                    outPixels[outOff + 3] = alpha[i]
                     
-                    // Quantize to nearest level
-                    let qR = UInt8(clamping: Int(round(r / step) * step))
-                    let qG = UInt8(clamping: Int(round(g / step) * step))
-                    let qB = UInt8(clamping: Int(round(b / step) * step))
-                    
-                    let outOff = (y * w + x) * 4
-                    outPixels[outOff] = qR; outPixels[outOff + 1] = qG
-                    outPixels[outOff + 2] = qB; outPixels[outOff + 3] = a
+                    // Diffuse the quantization error to neighbors (Floyd-Steinberg).
+                    let errR = oldR - nr, errG = oldG - ng, errB = oldB - nb
+                    func spread(_ dx: Int, _ dy: Int, _ factor: Double) {
+                        let nx = x + dx, ny = y + dy
+                        guard nx >= 0, nx < w, ny >= 0, ny < h else { return }
+                        let ni = (ny * w + nx) * 3
+                        work[ni]     += errR * factor
+                        work[ni + 1] += errG * factor
+                        work[ni + 2] += errB * factor
+                    }
+                    spread(1, 0, 7.0 / 16.0)
+                    spread(-1, 1, 3.0 / 16.0)
+                    spread(0, 1, 5.0 / 16.0)
+                    spread(1, 1, 1.0 / 16.0)
                 }
             }
             
-            return try renderRGBA(pixels: &outPixels, width: w, height: h)
+            let smallImg = try renderRGBA(pixels: &outPixels, width: w, height: h)
+            return try nearestUpscale(smallImg, toWidth: origW, toHeight: origH)
         }.value
     }
     
@@ -619,7 +647,78 @@ nonisolated enum ImageProcessingService {
         return success ? (pixels, w, h) : nil
     }
     
-    // Upscales a CGImage to a target size using nearest-neighbor (crisp pixels).
+    // Draws a CGImage into a raw RGBA8 buffer at an exact target size (high-quality
+    // box/bilinear downscale). Used to shrink to block resolution before palette mapping.
+    private static func normalizedRGBA(from image: CGImage, exactWidth: Int, exactHeight: Int) -> (pixels: [UInt8], width: Int, height: Int)? {
+        let w = max(1, exactWidth)
+        let h = max(1, exactHeight)
+        guard let cs = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        var pixels = [UInt8](repeating: 0, count: w * h * 4)
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+        let success: Bool = pixels.withUnsafeMutableBytes { raw in
+            guard let ctx = CGContext(data: raw.baseAddress, width: w, height: h,
+                                      bitsPerComponent: 8, bytesPerRow: w * 4,
+                                      space: cs, bitmapInfo: bitmapInfo) else { return false }
+            ctx.interpolationQuality = .high
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        return success ? (pixels, w, h) : nil
+    }
+    
+    // MARK: - Palette Quantization Helpers
+    
+    // Color type used for palette mapping (R,G,B bytes).
+    private typealias PColor = (r: UInt8, g: UInt8, b: UInt8)
+    
+    // Build a cohesive palette from an RGBA buffer using median-cut.
+    private static func buildPalette(from pixels: [UInt8], width: Int, height: Int, colorCount: Int) -> [PColor] {
+        var samples: [Pixel] = []
+        samples.reserveCapacity(width * height)
+        for i in 0..<(width * height) {
+            let o = i * 4
+            if pixels[o + 3] == 0 { continue } // skip transparent
+            samples.append((pixels[o], pixels[o + 1], pixels[o + 2]))
+        }
+        guard !samples.isEmpty else { return [] }
+        let buckets = medianCut(pixels: samples, depth: depthForCount(max(2, colorCount)))
+        // Average each bucket, then dedupe identical colors.
+        var seen = Set<Int>()
+        var palette: [PColor] = []
+        for bucket in buckets where !bucket.isEmpty {
+            let avg = averageColor(bucket)
+            let key = Int(avg.r) << 16 | Int(avg.g) << 8 | Int(avg.b)
+            if seen.insert(key).inserted {
+                palette.append((avg.r, avg.g, avg.b))
+            }
+        }
+        return palette
+    }
+    
+    // Index of the nearest palette color to an (r,g,b) triple (squared distance).
+    private static func nearestPaletteIndex(r: Double, g: Double, b: Double, palette: [PColor]) -> Int {
+        var best = 0
+        var bestDist = Double.greatestFiniteMagnitude
+        for (i, c) in palette.enumerated() {
+            let dr = r - Double(c.r), dg = g - Double(c.g), db = b - Double(c.b)
+            let d = dr * dr + dg * dg + db * db
+            if d < bestDist { bestDist = d; best = i }
+        }
+        return best
+    }
+    
+    // Reduce an RGBA buffer to a median-cut palette in place (hard mapping).
+    private static func applyPalette(to pixels: inout [UInt8], width: Int, height: Int, colorCount: Int) {
+        let palette = buildPalette(from: pixels, width: width, height: height, colorCount: colorCount)
+        guard !palette.isEmpty else { return }
+        for i in 0..<(width * height) {
+            let o = i * 4
+            if pixels[o + 3] == 0 { continue }
+            let idx = nearestPaletteIndex(r: Double(pixels[o]), g: Double(pixels[o + 1]), b: Double(pixels[o + 2]), palette: palette)
+            let c = palette[idx]
+            pixels[o] = c.r; pixels[o + 1] = c.g; pixels[o + 2] = c.b
+        }
+    }
     private static func nearestUpscale(_ image: CGImage, toWidth: Int, toHeight: Int) throws -> CGImage {
         guard toWidth > 0, toHeight > 0 else { throw ProcessingError.renderFailed }
         guard let cs = CGColorSpace(name: CGColorSpace.sRGB),

@@ -26,7 +26,15 @@ nonisolated enum PixelationMethod: String, CaseIterable, Identifiable, Sendable 
         case .kMeansClustering: return "K-Means"
         case .quantizeUpscale:  return "Quantize + Upscale"
         case .edgeDetection:    return "Edge Detect"
-        case .dither:           return "Ordered Dither"
+        case .dither:           return "Dither"
+        }
+    }
+    
+    // Whether the method reduces the image to a limited palette (uses the Colors control).
+    var usesPalette: Bool {
+        switch self {
+        case .standard, .kMeansClustering, .quantizeUpscale, .dither: return true
+        case .kuwaharaFilter, .edgeDetection: return false
         }
     }
     
@@ -44,17 +52,17 @@ nonisolated enum PixelationMethod: String, CaseIterable, Identifiable, Sendable 
     var shortDescription: String {
         switch self {
         case .standard:
-            return "Classic block averaging via CIPixellate. Fast and clean."
+            return "Downscales, reduces to a cohesive palette, then upscales. Clean, true pixel art."
         case .kuwaharaFilter:
             return "Picks the smoothest neighborhood quadrant per pixel. Painterly, edge-preserving."
         case .kMeansClustering:
-            return "Clusters colors via K-Means, then assigns each block to its nearest centroid. Sharp color regions."
+            return "Clusters colors with K-Means++ for vibrant, stable color regions."
         case .quantizeUpscale:
-            return "Downscale with Lanczos, quantize colors, then upscale with nearest-neighbor. Retro and crisp."
+            return "Lanczos downscale, median-cut palette, nearest-neighbor upscale. Retro and crisp."
         case .edgeDetection:
             return "Sobel edge detection highlights outlines. Great for tracing or overlaying on pixel art."
         case .dither:
-            return "Ordered Bayer dithering with reduced palette. Classic retro / Game Boy aesthetic."
+            return "Floyd-Steinberg error diffusion against a limited palette. Smooth retro gradients."
         }
     }
 }
