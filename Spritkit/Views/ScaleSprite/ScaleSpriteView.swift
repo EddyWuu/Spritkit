@@ -118,7 +118,6 @@ struct ScaleSpriteView: View {
     
     private var controlsSection: some View {
         VStack(spacing: 12) {
-            // Mode toggle
             Toggle("Custom Dimensions", isOn: $viewModel.useCustomDimensions)
                 .font(.subheadline)
             
@@ -128,7 +127,6 @@ struct ScaleSpriteView: View {
                 scaleFactorControls
             }
             
-            // Scale button
             Button {
                 viewModel.scale()
             } label: {
@@ -170,7 +168,6 @@ struct ScaleSpriteView: View {
                 Text("16").font(.caption2)
             }
             
-            // Quick presets
             HStack {
                 ForEach([0.5, 1.0, 2.0, 4.0, 8.0], id: \.self) { preset in
                     Button("\(preset, specifier: "%.0g")×") {

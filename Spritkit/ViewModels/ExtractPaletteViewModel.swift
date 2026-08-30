@@ -15,8 +15,6 @@ class ExtractPaletteViewModel: ObservableObject {
     // MARK: - Input
     
     @Published var sourceImage: CGImage?
-    
-    // Maximum number of colors to extract
     @Published var maxColors: Int = 16
     
     // MARK: - Output
@@ -24,8 +22,6 @@ class ExtractPaletteViewModel: ObservableObject {
     @Published var palette: Palette?
     @Published var isProcessing = false
     @Published var errorMessage: String?
-    
-    // Currently selected color for detail view
     @Published var selectedColor: PaletteColor?
     
     // MARK: - Info

@@ -7,8 +7,7 @@
 
 import Foundation
 
-// All available pixelation / stylization methods.
-// Each case carries a user-facing name, SF Symbol, and short description.
+// Available pixelation / stylization methods.
 nonisolated enum PixelationMethod: String, CaseIterable, Identifiable, Sendable {
     case standard
     case kuwaharaFilter
@@ -30,7 +29,7 @@ nonisolated enum PixelationMethod: String, CaseIterable, Identifiable, Sendable 
         }
     }
     
-    // Whether the method reduces the image to a limited palette (uses the Colors control).
+    // Whether the method reduces to a limited palette (uses the Colors control).
     var usesPalette: Bool {
         switch self {
         case .standard, .kMeansClustering, .quantizeUpscale, .dither: return true

@@ -11,12 +11,11 @@ import UIKit
 
 extension CGImage {
     
-    // Convert to UIImage
     var uiImage: UIImage {
         UIImage(cgImage: self)
     }
     
-    // Create a thumbnail with nearest-neighbor scaling (preserves pixel art)
+    // Nearest-neighbor thumbnail (preserves pixel art).
     func thumbnail(maxDimension: Int) -> CGImage? {
         let scale: CGFloat
         if width >= height {
@@ -25,7 +24,7 @@ extension CGImage {
             scale = CGFloat(maxDimension) / CGFloat(height)
         }
         
-        guard scale < 1.0 else { return self } // Already small enough
+        guard scale < 1.0 else { return self }
         
         let newWidth = Int(CGFloat(width) * scale)
         let newHeight = Int(CGFloat(height) * scale)
@@ -50,12 +49,11 @@ extension CGImage {
         return context.makeImage()
     }
     
-    // Get dimensions as a string (e.g., "32×32")
+    // e.g. "32×32"
     var dimensionString: String {
         "\(width)×\(height)"
     }
     
-    // Export to PNG data
     var pngData: Data? {
         guard let mutableData = CFDataCreateMutable(nil, 0),
               let destination = CGImageDestinationCreateWithData(mutableData, "public.png" as CFString, 1, nil)

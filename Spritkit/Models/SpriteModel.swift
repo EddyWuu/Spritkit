@@ -9,8 +9,8 @@ import Foundation
 import CoreGraphics
 import UIKit
 
-// Represents a single sprite — either imported or produced by an operation.
-// Supports Spritfill's [String] pixel grid format for cross-app interop.
+// A single sprite (imported or produced by an operation). Supports Spritfill's
+// [String] pixel grid format for cross-app interop.
 struct Sprite: Identifiable, Codable {
     
     let id: UUID
@@ -21,19 +21,15 @@ struct Sprite: Identifiable, Codable {
     var createdAt: Date
     var tags: [String]
     
-    // Pixel data as flat hex string array (matches Spritfill's ProjectData.pixelGrid).
-    // "clear" = transparent pixel, "#RRGGBB" = colored pixel.
-    // Length = width * height.
+    // Flat hex array (Spritfill format): "clear" or "#RRGGBB", length = width * height.
     var pixelGrid: [String]?
     
-    // Which app created this sprite
     enum SourceApp: String, Codable {
         case spritkit
         case spritfill
         case imported
     }
     
-    // File name for the PNG on disk (inside shared container or app sandbox)
     var pngFilename: String {
         "\(id.uuidString).png"
     }
@@ -61,7 +57,6 @@ struct Sprite: Identifiable, Codable {
 
 extension Sprite {
     
-    // Create a Sprite model from a CGImage
     static func from(_ cgImage: CGImage, name: String, sourceApp: SourceApp = .spritkit) -> Sprite {
         Sprite(
             name: name,
@@ -71,7 +66,6 @@ extension Sprite {
         )
     }
     
-    // Create a Sprite model from a Spritfill ProjectData-style pixel grid
     static func fromPixelGrid(_ grid: [String], width: Int, height: Int, name: String) -> Sprite {
         Sprite(
             name: name,
@@ -82,7 +76,7 @@ extension Sprite {
         )
     }
     
-    // Convert a CGImage to a pixel grid [String] (hex or "clear")
+    // Convert a CGImage to a [String] pixel grid (hex or "clear").
     static func pixelGridFrom(_ cgImage: CGImage) -> [String]? {
         guard let data = cgImage.dataProvider?.data,
               let ptr = CFDataGetBytePtr(data) else { return nil }

@@ -15,16 +15,12 @@ class ScaleSpriteViewModel: ObservableObject {
     // MARK: - Input
     
     @Published var sourceImage: CGImage?
-    
-    // Scale factor (e.g., 2.0 = double size)
+    // 2.0 = double size
     @Published var scaleFactor: CGFloat = 2.0
-    
-    // Whether to use custom width/height instead of factor
+    // Use custom width/height instead of factor
     @Published var useCustomDimensions = false
     @Published var customWidth: Int = 64
     @Published var customHeight: Int = 64
-    
-    // Lock aspect ratio when using custom dimensions
     @Published var lockAspectRatio = true
     
     // MARK: - Output

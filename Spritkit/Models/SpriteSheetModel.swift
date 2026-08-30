@@ -8,13 +8,13 @@
 import Foundation
 import CoreGraphics
 
-// Defines how a sprite sheet should be sliced
+// How a sprite sheet should be sliced.
 nonisolated enum SliceMode: String, Codable, CaseIterable, Sendable {
-    case grid       // Uniform grid (rows × cols)
-    case autoDetect // Find non-transparent bounding boxes
+    case grid
+    case autoDetect
 }
 
-// A rectangular region within a sprite sheet
+// A rectangular region within a sprite sheet.
 nonisolated struct FrameRect: Identifiable, Codable, Sendable {
     
     let id: UUID
@@ -22,8 +22,6 @@ nonisolated struct FrameRect: Identifiable, Codable, Sendable {
     var y: Int
     var width: Int
     var height: Int
-    
-    // Index in the animation sequence
     var index: Int
     
     init(id: UUID = UUID(), x: Int, y: Int, width: Int, height: Int, index: Int) {
@@ -40,7 +38,7 @@ nonisolated struct FrameRect: Identifiable, Codable, Sendable {
     }
 }
 
-// Represents a sprite sheet — a source image and its frame definitions
+// A source image and its frame definitions.
 nonisolated struct SpriteSheet: Identifiable, Codable, Sendable {
     
     let id: UUID
@@ -50,15 +48,9 @@ nonisolated struct SpriteSheet: Identifiable, Codable, Sendable {
     var frames: [FrameRect]
     var sliceMode: SliceMode
     var createdAt: Date
-    
-    // Grid-mode parameters
     var gridRows: Int
     var gridCols: Int
-    
-    // Padding between frames (in pixels)
     var padding: Int
-    
-    // Named animation clips (groups of frame indices)
     var clips: [AnimationClip]
     
     init(
@@ -87,7 +79,7 @@ nonisolated struct SpriteSheet: Identifiable, Codable, Sendable {
         self.clips = clips
     }
     
-    // Compute uniform grid frames from current parameters
+    // Compute uniform grid frames from current parameters.
     mutating func computeGridFrames() {
         guard gridRows > 0, gridCols > 0 else { return }
         

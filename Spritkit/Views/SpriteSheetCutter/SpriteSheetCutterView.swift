@@ -25,13 +25,11 @@ struct SpriteSheetCutterView: View {
                 
                 Divider()
                 
-                // Cut frames strip with selection
                 if !viewModel.cutFrames.isEmpty {
                     framesStrip
                     Divider()
                 }
                 
-                // Animation clips list
                 if !viewModel.clips.isEmpty {
                     clipsSection
                     Divider()
@@ -136,7 +134,6 @@ struct SpriteSheetCutterView: View {
     
     private var framesStrip: some View {
         VStack(alignment: .leading, spacing: 4) {
-            // Header with frame count and selection controls
             HStack {
                 Text("\(viewModel.frameCount) Frames")
                     .font(.caption.weight(.medium))
@@ -177,13 +174,11 @@ struct SpriteSheetCutterView: View {
             .padding(.horizontal)
             .padding(.top, 8)
             
-            // Hint text
             Text("Tap frames to select, then create animation clips")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal)
             
-            // Scrollable frame strip
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(Array(viewModel.cutFrames.enumerated()), id: \.offset) { index, pair in
@@ -203,7 +198,7 @@ struct SpriteSheetCutterView: View {
         let tagColor = viewModel.clipColor(for: index)
         
         return VStack(spacing: 2) {
-            // Color tag bar (shows which clip this frame belongs to)
+            // Color tag bar for the owning clip.
             if let tagColor {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(tagColor)
@@ -306,7 +301,6 @@ struct SpriteSheetCutterView: View {
                 .foregroundStyle(.secondary)
             
             HStack(spacing: 6) {
-                // Preview this clip
                 Button {
                     animationVM.loadWithClips(viewModel.cutFrames, clips: viewModel.clips, activeClip: clip)
                     onSendToAnimate()
@@ -317,7 +311,6 @@ struct SpriteSheetCutterView: View {
                 .buttonStyle(.bordered)
                 .tint(.green)
                 
-                // Delete clip
                 Button(role: .destructive) {
                     withAnimation {
                         viewModel.deleteClip(clip)
@@ -389,7 +382,6 @@ struct SpriteSheetCutterView: View {
     
     private var controlsSection: some View {
         VStack(spacing: 12) {
-            // Slice mode picker
             Picker("Mode", selection: $viewModel.sliceMode) {
                 ForEach(SliceMode.allCases, id: \.self) { mode in
                     Text(mode == .grid ? "Grid" : "Auto-Detect").tag(mode)
@@ -405,7 +397,6 @@ struct SpriteSheetCutterView: View {
                     .foregroundStyle(.secondary)
             }
             
-            // Slice button
             Button {
                 viewModel.sliceSheet()
             } label: {
@@ -418,10 +409,8 @@ struct SpriteSheetCutterView: View {
             .buttonStyle(.borderedProminent)
             .disabled(viewModel.sourceImage == nil || viewModel.isProcessing)
             
-            // Action buttons after slicing
             if !viewModel.cutFrames.isEmpty {
                 HStack(spacing: 12) {
-                    // Create animation clip from selection
                     Button {
                         viewModel.showingCreateClip = true
                     } label: {
@@ -435,7 +424,6 @@ struct SpriteSheetCutterView: View {
                     .tint(.orange)
                     .disabled(viewModel.selectedFrameIndices.isEmpty)
                     
-                    // Quick send all frames to animate
                     Button {
                         animationVM.loadFrames(viewModel.cutFrames)
                         onSendToAnimate()

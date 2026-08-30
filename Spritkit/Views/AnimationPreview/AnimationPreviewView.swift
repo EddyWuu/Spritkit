@@ -15,24 +15,20 @@ struct AnimationPreviewView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Clip picker (if multiple clips available)
                 if !viewModel.clips.isEmpty {
                     clipPicker
                     Divider()
                 }
                 
-                // Animation canvas
                 canvasSection
                 
                 Divider()
                 
-                // Timeline strip
                 if viewModel.hasFrames {
                     timelineStrip
                     Divider()
                 }
                 
-                // Playback controls
                 controlsSection
             }
             .navigationTitle("Animation Preview")
@@ -68,12 +64,10 @@ struct AnimationPreviewView: View {
     private var clipPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                // "All Frames" option
                 clipChip(name: "All Frames", color: .gray, isActive: viewModel.activeClip == nil) {
                     viewModel.selectClip(nil)
                 }
                 
-                // Individual clips
                 ForEach(viewModel.clips) { clip in
                     clipChip(name: clip.name, color: clip.colorTag.color, isActive: viewModel.activeClip?.id == clip.id) {
                         viewModel.selectClip(clip)
@@ -171,7 +165,6 @@ struct AnimationPreviewView: View {
     
     private var controlsSection: some View {
         VStack(spacing: 12) {
-            // Playback buttons
             HStack(spacing: 20) {
                 Button { viewModel.stop() } label: {
                     Image(systemName: "stop.fill")
@@ -202,7 +195,6 @@ struct AnimationPreviewView: View {
                 .disabled(!viewModel.hasFrames)
             }
             
-            // FPS slider
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("Speed")
@@ -222,7 +214,6 @@ struct AnimationPreviewView: View {
                 }
             }
             
-            // Playback mode picker
             Picker("Mode", selection: $viewModel.playbackMode) {
                 ForEach(PlaybackMode.allCases) { mode in
                     Text(mode.label).tag(mode)

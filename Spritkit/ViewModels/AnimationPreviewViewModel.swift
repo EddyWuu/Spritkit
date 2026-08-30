@@ -14,13 +14,9 @@ class AnimationPreviewViewModel: ObservableObject {
     
     // MARK: - Input
     
-    // All frames from the cutter (the full set)
     @Published var allFrames: [(AnimationFrame, CGImage)] = []
-    
-    // Available animation clips
     @Published var clips: [AnimationClip] = []
-    
-    // Currently selected clip (nil = "All Frames")
+    // nil = "All Frames"
     @Published var activeClip: AnimationClip?
     
     // MARK: - Playback State
@@ -32,15 +28,11 @@ class AnimationPreviewViewModel: ObservableObject {
     }
     @Published var playbackMode: PlaybackMode = .loop
     
-    // For ping-pong mode
     private var isReversing = false
-    
-    // Timer-based playback (avoids TimelineView double-fire bug)
     private var timerCancellable: AnyCancellable?
     
     // MARK: - Computed
     
-    // The frames currently being played (filtered by active clip)
     var activeFrames: [(AnimationFrame, CGImage)] {
         guard let clip = activeClip else { return allFrames }
         return clip.frameIndices.compactMap { idx in
@@ -161,7 +153,7 @@ class AnimationPreviewViewModel: ObservableObject {
         }
     }
     
-    // Load all frames (no clip — plays everything)
+    // Load all frames (no clip — plays everything).
     func loadFrames(_ newFrames: [(AnimationFrame, CGImage)]) {
         stopTimer()
         allFrames = newFrames
@@ -172,8 +164,7 @@ class AnimationPreviewViewModel: ObservableObject {
         isReversing = false
     }
     
-    // Load a specific clip's frames for preview.
-    // Always replaces allFrames with the full set, then selects the given clip.
+    // Replace allFrames with the full set, then select the given clip.
     func loadClip(_ clip: AnimationClip, allCutFrames: [(AnimationFrame, CGImage)]) {
         stopTimer()
         allFrames = allCutFrames
@@ -190,7 +181,7 @@ class AnimationPreviewViewModel: ObservableObject {
         isReversing = false
     }
     
-    // Load all frames with multiple clips, optionally selecting one
+    // Load all frames with multiple clips, optionally selecting one.
     func loadWithClips(_ frames: [(AnimationFrame, CGImage)], clips: [AnimationClip], activeClip: AnimationClip? = nil) {
         stopTimer()
         allFrames = frames

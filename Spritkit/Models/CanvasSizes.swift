@@ -46,7 +46,7 @@ enum CanvasSizes: String, CaseIterable, Codable {
         }
     }
     
-    // Find a matching CanvasSizes case from width and height, or nil if no match
+    // Matching case for a width/height, or nil.
     static func from(width: Int, height: Int) -> CanvasSizes? {
         return CanvasSizes.allCases.first { $0.dimensions.width == width && $0.dimensions.height == height }
     }

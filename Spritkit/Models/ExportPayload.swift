@@ -9,12 +9,12 @@ import Foundation
 import CoreGraphics
 import UIKit
 
-// Supported export formats
+// Supported export formats.
 enum ExportFormat: String, Codable, CaseIterable, Identifiable {
-    case png            // Single image
-    case spriteSheet    // Sheet PNG + JSON metadata
-    case palette        // Palette JSON (.spritepalette)
-    case gif            // Animated GIF
+    case png
+    case spriteSheet
+    case palette
+    case gif
     
     var id: String { rawValue }
     
@@ -37,7 +37,7 @@ enum ExportFormat: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-// Wraps data to be exported or shared
+// Wraps data to be exported or shared.
 struct ExportPayload {
     var format: ExportFormat
     var name: String
@@ -45,7 +45,7 @@ struct ExportPayload {
     var metadata: ExportMetadata?
     var palette: Palette?
     
-    // Generate shareable items for UIActivityViewController
+    // Shareable items for UIActivityViewController.
     func shareItems() -> [Any] {
         var items: [Any] = []
         
@@ -71,7 +71,6 @@ struct ExportPayload {
             }
             
         case .gif:
-            // GIF export handled separately via ImageIO
             for image in images {
                 items.append(UIImage(cgImage: image))
             }
@@ -81,7 +80,7 @@ struct ExportPayload {
     }
 }
 
-// JSON metadata for sprite sheet exports (TexturePacker-compatible format)
+// JSON metadata for sprite sheet exports (TexturePacker-compatible).
 struct ExportMetadata: Codable {
     var appName: String = "Spritkit"
     var version: String = "1.0"
@@ -91,7 +90,7 @@ struct ExportMetadata: Codable {
     var frames: [ExportFrameInfo]
 }
 
-// Per-frame info in sprite sheet metadata
+// Per-frame info in sprite sheet metadata.
 struct ExportFrameInfo: Codable {
     var filename: String
     var x: Int

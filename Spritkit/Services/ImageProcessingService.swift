@@ -10,31 +10,23 @@ import CoreGraphics
 import CoreImage
 import UIKit
 
-// Stateless image processing service.
-// All methods are async and run heavy work off the main thread.
-// Explicitly nonisolated — processing should never block the main actor.
+// Stateless, nonisolated image processing service. All work runs off the main thread.
 nonisolated enum ImageProcessingService {
-    
 
     // MARK: - Internal Helper Types
     
     private struct KSum { var r: Double = 0; var g: Double = 0; var b: Double = 0; var count: Int = 0 }
     private struct RGBA { var r: UInt8; var g: UInt8; var b: UInt8; var a: UInt8 }
-    // MARK: - Shared CIContext (reuse for performance)
-    
+
     private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     
     // MARK: - Pixelate (Unified Dispatcher)
     
-    // Apply a pixelation method to an image.
-    // - colorCount: target palette size (2...64). Palette-based methods (standard,
-    //   quantize, dither) reduce the image to this many colors for a true pixel-art look.
+    // colorCount is the target palette size (2...64) for palette-based methods.
     static func pixelate(image: CGImage, blockSize: CGFloat, method: PixelationMethod = .standard, colorCount: Int = 16) async throws -> CGImage {
         let clamped = min(max(blockSize, 1), 256)
         let colors = min(max(colorCount, 2), 64)
-        // Normalize to a canonical RGBA layout up front. Photos/camera images are
-        // frequently stored as BGRA (or premultiplied), so reading byte offset 0 as
-        // "red" actually returned blue — that's the bug that tinted images blue.
+        // Normalize to canonical RGBA so BGRA sources don't come out blue.
         let src = normalizedImage(image) ?? image
         
         switch method {
@@ -49,7 +41,6 @@ nonisolated enum ImageProcessingService {
     
     // Generate a small preview thumbnail using a given method (for method picker).
     static func pixelatePreview(image: CGImage, blockSize: CGFloat, method: PixelationMethod, colorCount: Int = 16, maxDimension: Int = 120) async throws -> CGImage {
-        // Downscale source first for speed
         let scale = CGFloat(maxDimension) / CGFloat(max(image.width, image.height))
         let thumb: CGImage
         if scale < 1.0 {
@@ -63,10 +54,8 @@ nonisolated enum ImageProcessingService {
     
     // MARK: - Standard (Downscale + Palette + Upscale)
     
-    // Produces true pixel art: shrink to block resolution, reduce to a cohesive
-    // median-cut palette, then upscale nearest-neighbor for crisp blocks.
+    // Shrink to block resolution, reduce to a median-cut palette, upscale nearest.
     private static func pixelateStandard(image: CGImage, blockSize: CGFloat) async throws -> CGImage {
-        // Retained for compatibility; routes through the palette path with default colors.
         return try await pixelateStandard(image: image, blockSize: blockSize, colorCount: 16)
     }
     
@@ -78,16 +67,13 @@ nonisolated enum ImageProcessingService {
             let smallW = max(origW / block, 1)
             let smallH = max(origH / block, 1)
             
-            // 1. Box-average downscale to block resolution (flat, clean cells).
             guard let small = normalizedRGBA(from: image, exactWidth: smallW, exactHeight: smallH) else {
                 throw ProcessingError.pixelAccessFailed
             }
             var buf = small.pixels
             
-            // 2. Reduce to a cohesive palette and map every pixel to it.
             applyPalette(to: &buf, width: smallW, height: smallH, colorCount: colorCount)
             
-            // 3. Render small, then upscale nearest-neighbor to original size.
             let smallImg = try renderRGBA(pixels: &buf, width: smallW, height: smallH)
             return try nearestUpscale(smallImg, toWidth: origW, toHeight: origH)
         }.value
@@ -95,14 +81,12 @@ nonisolated enum ImageProcessingService {
     
     // MARK: - Kuwahara Filter
     
-    // Divides each pixel's neighborhood into 4 quadrants, uses the one with lowest variance.
-    // Edge-preserving, produces a painterly/blocky look.
+    // Uses the lowest-variance quadrant of each pixel's neighborhood. Edge-preserving, painterly.
     private static func pixelateKuwahara(image: CGImage, blockSize: CGFloat) async throws -> CGImage {
         return try await Task.detached {
             let origW = image.width
             let origH = image.height
-            // Kuwahara is O(N · radius²). Cap the working resolution and radius so it
-            // stays fast on large photos, then upscale the result nearest-neighbor.
+            // Cap working resolution and radius so it stays fast on large photos.
             guard let norm = normalizedRGBA(from: image, maxDimension: 720) else {
                 throw ProcessingError.pixelAccessFailed
             }
@@ -115,12 +99,11 @@ nonisolated enum ImageProcessingService {
             
             for y in 0..<h {
                 for x in 0..<w {
-                    // Define 4 quadrants around (x, y)
                     let quads: [(xRange: ClosedRange<Int>, yRange: ClosedRange<Int>)] = [
-                        (max(0, x - radius)...x, max(0, y - radius)...y),       // top-left
-                        (x...min(w - 1, x + radius), max(0, y - radius)...y),   // top-right
-                        (max(0, x - radius)...x, y...min(h - 1, y + radius)),   // bottom-left
-                        (x...min(w - 1, x + radius), y...min(h - 1, y + radius)) // bottom-right
+                        (max(0, x - radius)...x, max(0, y - radius)...y),
+                        (x...min(w - 1, x + radius), max(0, y - radius)...y),
+                        (max(0, x - radius)...x, y...min(h - 1, y + radius)),
+                        (x...min(w - 1, x + radius), y...min(h - 1, y + radius))
                     ]
                     
                     var bestVariance = Double.greatestFiniteMagnitude
@@ -174,8 +157,7 @@ nonisolated enum ImageProcessingService {
     
     // MARK: - K-Means Clustering
     
-    // Clusters colors via K-Means, then maps each block to the nearest cluster centroid.
-    // Edges stay sharper because similar-colored regions stay cohesive.
+    // Clusters colors via K-Means, then maps each block to its nearest centroid.
     private static func pixelateKMeans(image: CGImage, blockSize: CGFloat) async throws -> CGImage {
         return try await pixelateKMeans(image: image, blockSize: blockSize, colorCount: 16)
     }
@@ -194,9 +176,8 @@ nonisolated enum ImageProcessingService {
             let bpp = image.bitsPerPixel / 8
             let bpr = image.bytesPerRow
 
-            // If the block size is large relative to the image, or the image is huge,
-            // aggregate pixels into block cells and run K-Means on those averages
-            // This reduces sample count from w*h down to (w/block)*(h/block)
+            // For large blocks or huge images, aggregate pixels into block cells and
+            // run K-Means on those averages to cut the sample count dramatically.
             let useBlockAggregation = block >= 4 || (w * h) > 1_000_000
 
             var samples: [(r: Double, g: Double, b: Double, a: Double)] = []
@@ -231,8 +212,7 @@ nonisolated enum ImageProcessingService {
                     }
                 }
             } else {
-                // Small block: sample pixels but cap total samples for performance
-                let maxSamples = 200_000 // safe upper bound for per-pixel sampling
+                let maxSamples = 200_000
                 let total = w * h
                 if total <= maxSamples {
                     samples.reserveCapacity(total)
@@ -243,7 +223,7 @@ nonisolated enum ImageProcessingService {
                         }
                     }
                 } else {
-                    // Strided sampling: pick an approximate sqrt stride to limit samples
+                    // Strided sampling to cap total samples.
                     let sampleStride = Int(sqrt(Double(total) / Double(maxSamples)))
                     let step = max(1, sampleStride)
                     for y in stride(from: 0, to: h, by: step) {
@@ -257,12 +237,10 @@ nonisolated enum ImageProcessingService {
 
             guard !samples.isEmpty else { throw ProcessingError.pixelAccessFailed }
 
-            // Decide k (number of clusters). Bound by the requested palette size.
             var k = max(2, min(colorCount, 32))
             k = min(k, max(2, samples.count / 4))
 
-            // k-means++ initialization: spread initial centroids far apart for
-            // stable, vibrant results (random init caused muddy, inconsistent output).
+            // k-means++ init: spread initial centroids apart for stable, vibrant results.
             var centroids: [(r: Double, g: Double, b: Double, a: Double)] = []
             centroids.reserveCapacity(k)
             let first = samples[samples.count / 2]
@@ -278,7 +256,6 @@ nonisolated enum ImageProcessingService {
                     total += dist[i]
                 }
                 guard total > 0 else { break }
-                // Pick the next centroid proportional to squared distance.
                 var target = Double.random(in: 0..<total)
                 var chosen = samples.count - 1
                 for (i, d) in dist.enumerated() {
@@ -290,13 +267,10 @@ nonisolated enum ImageProcessingService {
             }
             k = centroids.count
 
-            // K-Means iterations with caps and early exit
             let maxIters = 8
             var assignments = [Int](repeating: -1, count: samples.count)
             for _ in 0..<maxIters {
                 var changed = false
-
-                // reset sums
                 var sums = [KSum](repeating: KSum(), count: k)
 
                 for (i, px) in samples.enumerated() {
@@ -315,7 +289,6 @@ nonisolated enum ImageProcessingService {
                     sums[bestIdx].count += 1
                 }
 
-                // update centroids
                 for i in 0..<k {
                     if sums[i].count > 0 {
                         let n = Double(sums[i].count)
@@ -326,11 +299,9 @@ nonisolated enum ImageProcessingService {
                 if !changed { break }
             }
 
-            // Now paint output: if we used blockAggregation, map each block to nearest centroid and fill full block.
             var outPixels = [UInt8](repeating: 0, count: w * h * 4)
 
             if useBlockAggregation {
-                // compute centroid colors as RGBA bytes
                 let centroidBytes: [RGBA] = centroids.map { c in
                     RGBA(r: UInt8(clamping: Int(c.r)), g: UInt8(clamping: Int(c.g)), b: UInt8(clamping: Int(c.b)), a: 255)
                 }
@@ -341,13 +312,11 @@ nonisolated enum ImageProcessingService {
                     for bx in 0..<blocksX {
                         let x0 = bx * block
                         let x1 = min(w, x0 + block)
-                        // find sample index corresponding to this block
                         let sampleIdx = by * blocksX + bx
                         let assigned: Int = {
                             if sampleIdx < assignments.count {
                                 return assignments[sampleIdx]
                             } else {
-                                // fallback: nearest centroid by distance
                                 let s = samples[min(sampleIdx, samples.count - 1)]
                                 var bestDist = Double.greatestFiniteMagnitude
                                 var bestIdx = 0
@@ -373,8 +342,6 @@ nonisolated enum ImageProcessingService {
                     }
                 }
             } else {
-                // Per-pixel block-average then snap to centroid (original behavior optimized)
-                // Block-average then map to nearest centroid
                 for by in stride(from: 0, to: h, by: block) {
                     for bx in stride(from: 0, to: w, by: block) {
                         var avgR = 0.0, avgG = 0.0, avgB = 0.0, avgA = 0.0, cnt = 0.0
@@ -393,7 +360,6 @@ nonisolated enum ImageProcessingService {
                         }
                         avgR /= cnt; avgG /= cnt; avgB /= cnt; avgA /= cnt
 
-                        // find nearest centroid
                         var bestDist = Double.greatestFiniteMagnitude
                         var bestC = centroids[0]
                         for c in centroids {
@@ -421,7 +387,7 @@ nonisolated enum ImageProcessingService {
     
     // MARK: - Quantize + Upscale
     
-    // Downscale with high-quality Lanczos, reduce to a median-cut palette, upscale nearest.
+    // Lanczos downscale, reduce to a median-cut palette, upscale nearest.
     private static func pixelateQuantizeUpscale(image: CGImage, blockSize: CGFloat) async throws -> CGImage {
         return try await pixelateQuantizeUpscale(image: image, blockSize: blockSize, colorCount: 16)
     }
@@ -434,7 +400,6 @@ nonisolated enum ImageProcessingService {
             let smallW = max(w / block, 1)
             let smallH = max(h / block, 1)
             
-            // 1. Downscale with Lanczos (high quality, smoother color selection).
             let ciImage = CIImage(cgImage: image)
             let scaleX = Double(smallW) / Double(w)
             let scaleY = Double(smallH) / Double(h)
@@ -444,8 +409,7 @@ nonisolated enum ImageProcessingService {
                 throw ProcessingError.renderFailed
             }
             
-            // 2. Reduce to a cohesive median-cut palette (CIContext output may be BGRA,
-            //    so normalize first to guarantee correct channel order).
+            // Normalize first — CIContext output may be BGRA.
             guard let norm = normalizedRGBA(from: smallCG) else {
                 throw ProcessingError.pixelAccessFailed
             }
@@ -454,16 +418,13 @@ nonisolated enum ImageProcessingService {
             
             let smallResult = try renderRGBA(pixels: &buf, width: norm.width, height: norm.height)
             
-            // 3. Upscale nearest-neighbor to original size.
             return try nearestUpscale(smallResult, toWidth: w, toHeight: h)
         }.value
     }
     
     // MARK: - Floyd-Steinberg Dither
     
-    // Reduces the image to a median-cut palette using Floyd-Steinberg error
-    // diffusion. Far better than per-channel Bayer: gradients stay smooth and the
-    // palette stays cohesive. Works at block resolution, then upscales nearest.
+    // Reduces to a median-cut palette with Floyd-Steinberg error diffusion, then upscales.
     private static func pixelateDither(image: CGImage, blockSize: CGFloat) async throws -> CGImage {
         return try await pixelateDither(image: image, blockSize: blockSize, colorCount: 16)
     }
@@ -480,7 +441,6 @@ nonisolated enum ImageProcessingService {
                 throw ProcessingError.pixelAccessFailed
             }
             
-            // Build the palette from the downscaled buffer.
             let palette = buildPalette(from: small.pixels, width: w, height: h, colorCount: colorCount)
             guard !palette.isEmpty else { throw ProcessingError.pixelAccessFailed }
             
@@ -511,7 +471,6 @@ nonisolated enum ImageProcessingService {
                     outPixels[outOff + 2] = np.b
                     outPixels[outOff + 3] = alpha[i]
                     
-                    // Diffuse the quantization error to neighbors (Floyd-Steinberg).
                     let errR = oldR - nr, errG = oldG - ng, errB = oldB - nb
                     func spread(_ dx: Int, _ dy: Int, _ factor: Double) {
                         let nx = x + dx, ny = y + dy
@@ -535,13 +494,11 @@ nonisolated enum ImageProcessingService {
     
     // MARK: - Edge Detection (Sobel Overlay)
     
-    // Sobel edge detection blended over the original image so edges highlight
-    // while color context remains. blockSize acts as a pre-blur radius (denoise).
+    // Sobel edges blended over the original. blockSize acts as a pre-blur radius.
     private static func detectEdges(image: CGImage, blockSize: CGFloat) async throws -> CGImage {
         return try await Task.detached {
             let origW = image.width
             let origH = image.height
-            // Cap working resolution so the blur + Sobel passes stay fast on big photos.
             guard let norm = normalizedRGBA(from: image, maxDimension: 1400) else {
                 throw ProcessingError.pixelAccessFailed
             }
@@ -549,14 +506,13 @@ nonisolated enum ImageProcessingService {
             let w = norm.width
             let h = norm.height
             
-            // 1. Luminance map.
             var luma = [Double](repeating: 0, count: w * h)
             for i in 0..<(w * h) {
                 let o = i * 4
                 luma[i] = 0.299 * Double(pixels[o]) + 0.587 * Double(pixels[o + 1]) + 0.114 * Double(pixels[o + 2])
             }
             
-            // 2. Optional light box blur to reduce noise (small radius, capped).
+            // Optional light box blur to reduce noise.
             let blurRadius = max(0, min(2, Int(blockSize / 12)))
             if blurRadius > 0 {
                 var blurred = luma
@@ -576,7 +532,7 @@ nonisolated enum ImageProcessingService {
                 luma = blurred
             }
             
-            // 3. Sobel gradient magnitude, blended (white) over the original color.
+            // Sobel gradient magnitude, blended white over the original color.
             var outPixels = [UInt8](repeating: 0, count: w * h * 4)
             for y in 0..<h {
                 for x in 0..<w {
@@ -607,9 +563,7 @@ nonisolated enum ImageProcessingService {
     
     // MARK: - Normalized Pixel Access
     
-    // Returns a CGImage backed by a canonical RGBA8 buffer (sRGB, premultipliedLast,
-    // big-endian → bytes are R,G,B,A in memory). Redrawing through this fixes the
-    // channel-order bug where BGRA source images made photos look blue.
+    // Redraws into a canonical RGBA8 buffer (bytes are R,G,B,A), fixing BGRA channel order.
     private static func normalizedImage(_ image: CGImage) -> CGImage? {
         let w = image.width
         let h = image.height
@@ -622,9 +576,7 @@ nonisolated enum ImageProcessingService {
         return ctx.makeImage()
     }
     
-    // Draws a CGImage into a raw RGBA8 byte array (R,G,B,A order, bytesPerRow = w*4).
-    // Optionally downsamples to a max long-side dimension — used to keep the
-    // expensive neighborhood filters (Kuwahara, Edge) fast on large photos.
+    // Draws a CGImage into a raw RGBA8 array, optionally downsampling to a max long side.
     private static func normalizedRGBA(from image: CGImage, maxDimension: Int? = nil) -> (pixels: [UInt8], width: Int, height: Int)? {
         var w = image.width
         var h = image.height
@@ -647,8 +599,7 @@ nonisolated enum ImageProcessingService {
         return success ? (pixels, w, h) : nil
     }
     
-    // Draws a CGImage into a raw RGBA8 buffer at an exact target size (high-quality
-    // box/bilinear downscale). Used to shrink to block resolution before palette mapping.
+    // Draws a CGImage into a raw RGBA8 buffer at an exact target size (high-quality downscale).
     private static func normalizedRGBA(from image: CGImage, exactWidth: Int, exactHeight: Int) -> (pixels: [UInt8], width: Int, height: Int)? {
         let w = max(1, exactWidth)
         let h = max(1, exactHeight)
@@ -668,7 +619,6 @@ nonisolated enum ImageProcessingService {
     
     // MARK: - Palette Quantization Helpers
     
-    // Color type used for palette mapping (R,G,B bytes).
     private typealias PColor = (r: UInt8, g: UInt8, b: UInt8)
     
     // Build a cohesive palette from an RGBA buffer using median-cut.
@@ -677,7 +627,7 @@ nonisolated enum ImageProcessingService {
         samples.reserveCapacity(width * height)
         for i in 0..<(width * height) {
             let o = i * 4
-            if pixels[o + 3] == 0 { continue } // skip transparent
+            if pixels[o + 3] == 0 { continue }
             samples.append((pixels[o], pixels[o + 1], pixels[o + 2]))
         }
         guard !samples.isEmpty else { return [] }
@@ -695,7 +645,7 @@ nonisolated enum ImageProcessingService {
         return palette
     }
     
-    // Index of the nearest palette color to an (r,g,b) triple (squared distance).
+    // Index of the nearest palette color to an (r,g,b) triple.
     private static func nearestPaletteIndex(r: Double, g: Double, b: Double, palette: [PColor]) -> Int {
         var best = 0
         var bestDist = Double.greatestFiniteMagnitude
@@ -746,11 +696,7 @@ nonisolated enum ImageProcessingService {
     
     // MARK: - Scale (Nearest Neighbor)
     
-    // Scale an image using nearest-neighbor interpolation (preserves pixel-art crispness).
-    // - Parameters:
-    //   - image: Source CGImage
-    //   - factor: Scale factor (e.g., 2.0 = double size, 0.5 = half size). Clamped to 0.1...32.
-    // - Returns: Scaled CGImage
+    // Scale using nearest-neighbor to preserve pixel-art crispness. factor clamped to 0.1...32.
     static func scaleNearestNeighbor(image: CGImage, factor: CGFloat) async throws -> CGImage {
         let clamped = min(max(factor, 0.1), 32)
         let newWidth = Int(CGFloat(image.width) * clamped)
@@ -777,7 +723,6 @@ nonisolated enum ImageProcessingService {
                 throw ProcessingError.renderFailed
             }
             
-            // Nearest-neighbor — no interpolation
             context.interpolationQuality = .none
             context.draw(image, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
             
@@ -791,11 +736,7 @@ nonisolated enum ImageProcessingService {
     
     // MARK: - Extract Palette (Median Cut)
     
-    // Extract dominant colors from an image using a simplified median-cut algorithm.
-    // - Parameters:
-    //   - image: Source CGImage
-    //   - maxColors: Maximum number of colors to extract (default 16)
-    // - Returns: Palette with extracted colors sorted by frequency
+    // Extract dominant colors via median-cut, sorted by frequency.
     static func extractPalette(image: CGImage, maxColors: Int = 16) async throws -> Palette {
         return try await Task.detached {
             guard let data = image.dataProvider?.data,
@@ -808,7 +749,6 @@ nonisolated enum ImageProcessingService {
             let bytesPerPixel = image.bitsPerPixel / 8
             let bytesPerRow = image.bytesPerRow
             
-            // Collect all pixel colors
             var pixels: [(r: UInt8, g: UInt8, b: UInt8)] = []
             pixels.reserveCapacity(width * height)
             
@@ -818,7 +758,6 @@ nonisolated enum ImageProcessingService {
                     let r = ptr[offset]
                     let g = ptr[offset + 1]
                     let b = ptr[offset + 2]
-                    // Skip fully transparent pixels
                     if bytesPerPixel >= 4 {
                         let a = ptr[offset + 3]
                         if a == 0 { continue }
@@ -831,10 +770,8 @@ nonisolated enum ImageProcessingService {
                 return Palette(name: "Empty", colors: [])
             }
             
-            // Simplified median-cut: recursively split the color space
             let buckets = medianCut(pixels: pixels, depth: depthForCount(maxColors))
             
-            // Convert buckets to PaletteColors (hex-primary, matches Spritfill)
             var colors: [PaletteColor] = buckets.map { bucket in
                 let avg = averageColor(bucket)
                 return PaletteColor(
@@ -845,14 +782,11 @@ nonisolated enum ImageProcessingService {
                 )
             }
             
-            // Deduplicate: merge buckets that averaged to the same hex color.
-            // This prevents showing 128 copies of the same color when the image
-            // only has 3 actual colors.
-            var seen: [String: Int] = [:] // hex -> index in deduped array
+            // Merge buckets that averaged to the same hex color.
+            var seen: [String: Int] = [:]
             var deduped: [PaletteColor] = []
             for color in colors {
                 if let existingIdx = seen[color.hex] {
-                    // Merge frequency into the existing entry
                     deduped[existingIdx] = PaletteColor(
                         hex: color.hex,
                         frequency: deduped[existingIdx].frequency + color.frequency
@@ -864,10 +798,8 @@ nonisolated enum ImageProcessingService {
             }
             colors = deduped
             
-            // Sort by frequency (most common first)
             colors.sort { $0.frequency > $1.frequency }
             
-            // Limit to maxColors
             if colors.count > maxColors {
                 colors = Array(colors.prefix(maxColors))
             }
@@ -878,11 +810,7 @@ nonisolated enum ImageProcessingService {
     
     // MARK: - Sprite Sheet Slicing
     
-    // Slice a sprite sheet into individual frames.
-    // - Parameters:
-    //   - image: Source sprite sheet CGImage
-    //   - sheet: SpriteSheet model with frame definitions (call computeGridFrames() first for grid mode)
-    // - Returns: Array of (AnimationFrame, CGImage) tuples
+    // Slice a sprite sheet into frames (call computeGridFrames() first for grid mode).
     static func sliceSheet(image: CGImage, sheet: SpriteSheet) async throws -> [(AnimationFrame, CGImage)] {
         guard !sheet.frames.isEmpty else {
             throw ProcessingError.invalidParameters("No frames defined in sprite sheet")
@@ -913,10 +841,7 @@ nonisolated enum ImageProcessingService {
     
     // MARK: - Auto-Detect Frames
     
-    // Detect individual sprite bounding boxes in a sprite sheet by finding
-    // connected non-transparent regions.
-    // - Parameter image: Source sprite sheet CGImage with transparent background
-    // - Returns: Array of FrameRects for detected sprites
+    // Detect sprite bounding boxes by finding connected non-transparent regions.
     static func autoDetectFrames(image: CGImage) async throws -> [FrameRect] {
         return try await Task.detached {
             guard let data = image.dataProvider?.data,
@@ -933,22 +858,20 @@ nonisolated enum ImageProcessingService {
                 throw ProcessingError.invalidParameters("Image must have an alpha channel for auto-detection")
             }
             
-            // Build a binary mask: true = non-transparent pixel
             var visited = Array(repeating: false, count: width * height)
             var frames: [FrameRect] = []
             
             func isOpaque(x: Int, y: Int) -> Bool {
                 let offset = y * bytesPerRow + x * bytesPerPixel
-                return ptr[offset + 3] > 10 // Alpha threshold
+                return ptr[offset + 3] > 10
             }
             
-            // Flood-fill to find connected regions
             for y in 0..<height {
                 for x in 0..<width {
                     let idx = y * width + x
                     if visited[idx] || !isOpaque(x: x, y: y) { continue }
                     
-                    // BFS to find bounding box of this connected region
+                    // BFS to find this region's bounding box.
                     var minX = x, maxX = x, minY = y, maxY = y
                     var queue = [(x, y)]
                     visited[idx] = true
@@ -960,7 +883,6 @@ nonisolated enum ImageProcessingService {
                         minY = min(minY, cy)
                         maxY = max(maxY, cy)
                         
-                        // Check 4-connected neighbors
                         for (dx, dy) in [(0, -1), (0, 1), (-1, 0), (1, 0)] {
                             let nx = cx + dx
                             let ny = cy + dy
@@ -972,7 +894,7 @@ nonisolated enum ImageProcessingService {
                         }
                     }
                     
-                    // Only add if the region is big enough (ignore stray pixels)
+                    // Ignore stray specks.
                     let regionWidth = maxX - minX + 1
                     let regionHeight = maxY - minY + 1
                     if regionWidth >= 4 && regionHeight >= 4 {
@@ -985,7 +907,6 @@ nonisolated enum ImageProcessingService {
                 }
             }
             
-            // Sort left-to-right, top-to-bottom
             return frames.sorted { a, b in
                 if a.y != b.y { return a.y < b.y }
                 return a.x < b.x
@@ -1037,7 +958,7 @@ extension ImageProcessingService {
             return [pixels]
         }
         
-        // Find the channel with the widest range
+        // Split on the widest-range channel.
         let rRange = pixels.map(\.r).max()! - pixels.map(\.r).min()!
         let gRange = pixels.map(\.g).max()! - pixels.map(\.g).min()!
         let bRange = pixels.map(\.b).max()! - pixels.map(\.b).min()!

@@ -15,19 +15,16 @@ struct ExtractPaletteView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Image preview (compact)
                 imageSection
                 
                 Divider()
                 
-                // Palette grid
                 if let palette = viewModel.palette {
                     paletteGrid(palette)
                 }
                 
                 Divider()
                 
-                // Controls
                 controlsSection
             }
             .navigationTitle("Extract Palette")
@@ -157,7 +154,6 @@ struct ExtractPaletteView: View {
     
     private var controlsSection: some View {
         VStack(spacing: 12) {
-            // Max colors picker
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("Max Colors")
@@ -180,7 +176,6 @@ struct ExtractPaletteView: View {
                 }
             }
             
-            // Extract button
             Button {
                 viewModel.extractPalette()
             } label: {
@@ -193,7 +188,6 @@ struct ExtractPaletteView: View {
             .buttonStyle(.borderedProminent)
             .disabled(viewModel.sourceImage == nil || viewModel.isProcessing)
             
-            // Selected color info
             if let selected = viewModel.selectedColor {
                 HStack {
                     Circle()

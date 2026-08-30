@@ -9,10 +9,9 @@ import SwiftUI
 
 // MARK: - Operation Tab Definition
 
-// All available sprite operations. Add new tools here — they auto-appear in the tab bar.
+// Available sprite operations. Add new tools here — they auto-appear in the tab bar.
 enum OperationTab: Int, CaseIterable, Identifiable {
     
-    // Current tools
     case pixelate = 0
     case scaleSprite = 1
     case extractPalette = 2
@@ -50,7 +49,7 @@ enum OperationTab: Int, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - Content View (matches Spritfill tab pattern)
+// MARK: - Content View
 
 struct ContentView: View {
     
@@ -98,10 +97,9 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Lazy Tab (matches Spritfill pattern)
+// MARK: - Lazy Tab
 
-// Defers creation of a heavy tab view until it first appears.
-// After first load, the view stays alive (not re-created on every tab switch).
+// Defers creation of a heavy tab view until it first appears, then keeps it alive.
 private struct LazyTab<Content: View>: View {
     let build: () -> Content
     @State private var hasAppeared = false

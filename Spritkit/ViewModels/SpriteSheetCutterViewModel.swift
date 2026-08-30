@@ -19,7 +19,6 @@ class SpriteSheetCutterViewModel: ObservableObject {
     
     // MARK: - Output
     
-    // Cut frames as (model, image) pairs
     @Published var cutFrames: [(AnimationFrame, CGImage)] = []
     @Published var isProcessing = false
     @Published var errorMessage: String?
@@ -93,7 +92,7 @@ class SpriteSheetCutterViewModel: ObservableObject {
         return "\(w)×\(h)"
     }
     
-    // Which clip "owns" a given frame index (for coloring the strip)
+    // Which clip "owns" a given frame index (for coloring the strip).
     func clipColor(for frameIndex: Int) -> Color? {
         for clip in clips {
             if clip.frameIndices.contains(frameIndex) {
@@ -143,11 +142,10 @@ class SpriteSheetCutterViewModel: ObservableObject {
         clips.append(clip)
         spriteSheet.clips = clips
         
-        // Reset selection state
         selectedFrameIndices.removeAll()
         newClipName = ""
         
-        // Cycle to next color
+        // Cycle to the next color.
         let allColors = ClipColor.allCases
         if let currentIdx = allColors.firstIndex(of: newClipColor) {
             newClipColor = allColors[(currentIdx + 1) % allColors.count]
@@ -169,7 +167,6 @@ class SpriteSheetCutterViewModel: ObservableObject {
     func sliceSheet() {
         guard let source = sourceImage else { return }
         
-        // In grid mode, always recompute frames before slicing
         if spriteSheet.sliceMode == .grid {
             spriteSheet.computeGridFrames()
         }
@@ -177,7 +174,6 @@ class SpriteSheetCutterViewModel: ObservableObject {
         isProcessing = true
         errorMessage = nil
         
-        // Clear previous clips and selection when re-slicing
         clips.removeAll()
         selectedFrameIndices.removeAll()
         

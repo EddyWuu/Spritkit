@@ -9,22 +9,14 @@ import Foundation
 import CoreGraphics
 import SwiftUI
 
-// A single frame in a sprite animation
+// A single frame in a sprite animation.
 nonisolated struct AnimationFrame: Identifiable, Codable, Sendable {
     
     let id: UUID
-    
-    // Index in the animation sequence
     var index: Int
-    
-    // Duration of this frame in seconds (default 1/12s for 12 FPS)
     var duration: TimeInterval
-    
-    // Width and height of the frame image
     var width: Int
     var height: Int
-    
-    // Filename on disk
     var imageFilename: String
     
     init(
@@ -44,22 +36,16 @@ nonisolated struct AnimationFrame: Identifiable, Codable, Sendable {
     }
 }
 
-// A named animation clip — a subset of frames from a sprite sheet
-// that form one animation sequence (e.g. "Walk", "Attack", "Idle").
-// Inspired by Aseprite's "tags" concept.
+// A named subset of a sheet's frames forming one animation (e.g. "Walk"),
+// inspired by Aseprite's "tags".
 nonisolated struct AnimationClip: Identifiable, Codable, Sendable {
     
     let id: UUID
     var name: String
-    
     // Indices into the parent sheet's cut frames array
     var frameIndices: [Int]
-    
-    // Per-clip playback defaults
     var fps: Double
     var playbackMode: PlaybackMode
-    
-    // Color tag for visual identification in the frame strip
     var colorTag: ClipColor
     
     init(
@@ -81,7 +67,7 @@ nonisolated struct AnimationClip: Identifiable, Codable, Sendable {
     var frameCount: Int { frameIndices.count }
 }
 
-// Color options for animation clip tags
+// Color options for animation clip tags.
 nonisolated enum ClipColor: String, Codable, CaseIterable, Sendable {
     case red, orange, yellow, green, blue, purple, pink
     
@@ -98,11 +84,11 @@ nonisolated enum ClipColor: String, Codable, CaseIterable, Sendable {
     }
 }
 
-// Playback mode for animation preview
+// Playback mode for animation preview.
 nonisolated enum PlaybackMode: String, Codable, CaseIterable, Identifiable {
-    case loop       // Repeat from start
-    case pingPong   // Forward then reverse
-    case once       // Play once and stop
+    case loop
+    case pingPong
+    case once
     
     var id: String { rawValue }
     

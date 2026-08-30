@@ -23,11 +23,10 @@ struct SpriteCanvasView: View {
     
     var body: some View {
         ZStack {
-            // Checkerboard background (transparency indicator)
+            // Transparency checkerboard.
             CheckerboardView()
                 .opacity(0.3)
             
-            // The sprite image — nearest-neighbor interpolation
             Image(decorative: image, scale: 1.0)
                 .interpolation(.none)
                 .resizable()
@@ -73,7 +72,7 @@ struct SpriteCanvasView: View {
 
 // MARK: - Checkerboard Background
 
-// A checkerboard pattern commonly used to indicate transparency
+// Checkerboard pattern indicating transparency.
 struct CheckerboardView: View {
     var squareSize: CGFloat = 10
     var color1: Color = Color(white: 0.85)

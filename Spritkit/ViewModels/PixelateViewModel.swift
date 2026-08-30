@@ -15,14 +15,10 @@ class PixelateViewModel: ObservableObject {
     // MARK: - Input
     
     @Published var sourceImage: CGImage?
-    
-    // Pixel block size — higher values = more pixelated
+    // Higher = more pixelated
     @Published var blockSize: CGFloat = 8
-    
-    // Target palette size for palette-based methods (Standard, K-Means, Quantize, Dither)
+    // Palette size for palette-based methods
     @Published var colorCount: Int = 16
-    
-    // Selected pixelation method
     @Published var selectedMethod: PixelationMethod = .standard
     
     // MARK: - Output
@@ -45,7 +41,6 @@ class PixelateViewModel: ObservableObject {
     
     // MARK: - Actions
     
-    // Apply the selected method at full resolution
     func pixelate() {
         guard let source = sourceImage else { return }
         

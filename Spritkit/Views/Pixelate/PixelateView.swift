@@ -17,12 +17,10 @@ struct PixelateView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Canvas area
                 canvasSection
                 
                 Divider()
                 
-                // Controls
                 controlsSection
             }
             .navigationTitle("Pixelate")
@@ -82,7 +80,7 @@ struct PixelateView: View {
                         .padding(8)
                 }
                 .overlay(alignment: .topTrailing) {
-                    // Simple toggle to compare against the original (only once processed)
+                    // Compare against the original once processed.
                     if viewModel.outputImage != nil {
                         Button {
                             showingOriginal.toggle()
@@ -144,7 +142,6 @@ struct PixelateView: View {
     
     private var controlsSection: some View {
         VStack(spacing: 12) {
-            // Method selector button
             Button {
                 showingMethodPicker = true
             } label: {
@@ -169,7 +166,6 @@ struct PixelateView: View {
             .buttonStyle(.plain)
             .disabled(viewModel.sourceImage == nil)
             
-            // Block size slider
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("Block Size")
@@ -188,13 +184,12 @@ struct PixelateView: View {
                     Text("64").font(.caption2)
                 }
                 .onChange(of: viewModel.blockSize) { _, _ in
-                    // Clear the stale result so the user re-applies with the new size
                     viewModel.outputImage = nil
                     showingOriginal = false
                 }
             }
             
-            // Color count slider (palette size) — used by palette-based methods
+            // Palette size — palette-based methods only.
             if viewModel.selectedMethod.usesPalette {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -223,7 +218,6 @@ struct PixelateView: View {
                 }
             }
             
-            // Apply button
             Button {
                 showingOriginal = false
                 viewModel.pixelate()
@@ -237,7 +231,6 @@ struct PixelateView: View {
             .buttonStyle(.borderedProminent)
             .disabled(viewModel.sourceImage == nil || viewModel.isProcessing)
             
-            // Error message
             if let error = viewModel.errorMessage {
                 Text(error)
                     .font(.caption)
