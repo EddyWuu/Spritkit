@@ -7,10 +7,17 @@
 
 import SwiftUI
 
+enum PaletteViewMode: String, CaseIterable {
+    case swatches = "Swatches"
+    case hex = "Hex"
+}
+
 struct ExtractPaletteView: View {
     
     @StateObject private var viewModel = ExtractPaletteViewModel()
     @State private var showingHelp = false
+    @State private var viewMode: PaletteViewMode = .swatches
+    @State private var copiedAll = false
     
     var body: some View {
         NavigationStack {
@@ -20,7 +27,21 @@ struct ExtractPaletteView: View {
                 Divider()
                 
                 if let palette = viewModel.palette {
-                    paletteGrid(palette)
+                    Picker("View", selection: $viewMode) {
+                        ForEach(PaletteViewMode.allCases, id: \.self) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                    
+                    switch viewMode {
+                    case .swatches:
+                        paletteGrid(palette)
+                    case .hex:
+                        hexList(palette)
+                    }
                 }
                 
                 Divider()
@@ -148,6 +169,55 @@ struct ExtractPaletteView: View {
                 }
             }
         }
+    }
+    
+    // MARK: - Hex List
+    
+    private func hexList(_ palette: Palette) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("\(palette.colorCount) colors")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    UIPasteboard.general.string = palette.hexColors.joined(separator: "\n")
+                    withAnimation { copiedAll = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        withAnimation { copiedAll = false }
+                    }
+                } label: {
+                    Label(copiedAll ? "Copied!" : "Copy All", systemImage: copiedAll ? "checkmark" : "doc.on.doc")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                .tint(copiedAll ? .green : .accentColor)
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            
+            List {
+                ForEach(palette.colors) { color in
+                    HStack {
+                        Text(color.hex)
+                            .font(.system(.body, design: .monospaced))
+                        Spacer()
+                        Image(systemName: viewModel.selectedColor?.id == color.id ? "checkmark" : "doc.on.doc")
+                            .font(.caption)
+                            .foregroundStyle(viewModel.selectedColor?.id == color.id ? .green : .secondary)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        UIPasteboard.general.string = color.hex
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            viewModel.selectedColor = color
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+        }
+        .frame(maxHeight: .infinity)
     }
     
     // MARK: - Controls
