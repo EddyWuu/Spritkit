@@ -1,8 +1,6 @@
 import SwiftUI
 
-// A simple before/after comparison view that shows original and processed images
-// with a draggable divider. Keeps both images centered and uses aspect-fit scaling
-// so long horizontal/vertical images don't distort layout.
+// Before/after comparison with a draggable divider, aspect-fit scaled.
 struct BeforeAfterView: View {
     let original: CGImage
     let processed: CGImage
@@ -15,7 +13,6 @@ struct BeforeAfterView: View {
             let w = geo.size.width
             let clipX = max(0.0, min(1.0, dividerPosition + (dragOffset / w)))
             ZStack {
-                // Original (left)
                 Image(decorative: original, scale: 1.0)
                     .resizable()
                     .interpolation(.none)
@@ -23,7 +20,6 @@ struct BeforeAfterView: View {
                     .frame(width: w, height: geo.size.height)
                     .clipped()
                 
-                // Processed (right) clipped to divider
                 Image(decorative: processed, scale: 1.0)
                     .resizable()
                     .interpolation(.none)
@@ -36,7 +32,6 @@ struct BeforeAfterView: View {
                             .alignmentGuide(.leading) { _ in 0 }
                     )
                 
-                // Divider
                 Rectangle()
                     .fill(Color.white.opacity(0.9))
                     .frame(width: 2)
@@ -53,7 +48,6 @@ struct BeforeAfterView: View {
                             }
                     )
                 
-                // Labels
                 VStack {
                     HStack {
                         Text("Before")
@@ -80,7 +74,6 @@ struct BeforeAfterView: View {
 #if DEBUG
 struct BeforeAfterView_Previews: PreviewProvider {
     static var previews: some View {
-        // placeholder images with solid color for preview
         let img = CGImage(width: 64, height: 64, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 64 * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue), provider: CGDataProvider(data: Data(repeating: 0xFF, count: 64 * 64 * 4) as CFData)!, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
         BeforeAfterView(original: img, processed: img)
             .frame(height: 300)

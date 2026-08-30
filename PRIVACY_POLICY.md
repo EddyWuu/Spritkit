@@ -52,6 +52,4 @@ If this policy changes, the updated version will be posted here and on the linke
 
 ## Contact
 
-If you have questions about this privacy policy, you can reach out via the GitHub repository:
-
-https://github.com/EddyWuu/Spritkit
+For questions about these terms, contact me at: ducksss777@gmail.com

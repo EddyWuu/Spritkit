@@ -46,12 +46,10 @@ struct ImagePickerView: View {
 }
 
 private extension UIImage {
-    // Returns a CGImage whose pixel buffer matches the visual orientation.
-    // Photos taken in portrait store a rotated (landscape) buffer plus an
-    // orientation flag; grabbing `.cgImage` directly ignores that flag and
-    // yields a rotated/flipped image. Redrawing bakes the orientation in.
+    // Redraws the image upright so its pixel buffer matches the visual orientation.
+    // Photos taken in portrait store a rotated buffer plus an orientation flag;
+    // grabbing `.cgImage` directly ignores the flag and yields a rotated image.
     func normalizedCGImage() -> CGImage? {
-        // Already upright — use the backing image directly (no redraw needed).
         if imageOrientation == .up {
             return cgImage
         }

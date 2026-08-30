@@ -100,7 +100,7 @@ struct CheckerboardView: View {
 
 // MARK: - Grid Overlay
 
-// Draws a grid overlay on the sprite canvas (for sprite sheet cutting)
+// Draws a grid overlay for sprite sheet cutting.
 struct GridOverlayView: View {
     var rows: Int
     var cols: Int
@@ -111,7 +111,6 @@ struct GridOverlayView: View {
             let cellWidth = size.width / CGFloat(cols)
             let cellHeight = size.height / CGFloat(rows)
             
-            // Vertical lines
             for col in 1..<cols {
                 let x = CGFloat(col) * cellWidth
                 var path = Path()
@@ -120,7 +119,6 @@ struct GridOverlayView: View {
                 context.stroke(path, with: .color(color), lineWidth: 1)
             }
             
-            // Horizontal lines
             for row in 1..<rows {
                 let y = CGFloat(row) * cellHeight
                 var path = Path()
