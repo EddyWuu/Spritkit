@@ -25,13 +25,11 @@ struct HelpSheetView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    // Header
                     Text(subtitle)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal)
                     
-                    // Steps / info
                     ForEach(items) { item in
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: item.icon)
@@ -70,12 +68,12 @@ extension HelpSheetView {
     static var pixelate: HelpSheetView {
         HelpSheetView(
             title: "Pixelate",
-            subtitle: "Turn any photo into pixel art using 9 different pixelation algorithms — each with live previews.",
+            subtitle: "Turn any photo into pixel art using 6 different pixelation algorithms.",
             items: [
                 HelpItem(icon: "photo.badge.plus", title: "Import a Photo", description: "Tap the import button in the toolbar to pick a photo from your library or camera."),
-                HelpItem(icon: "square.grid.3x3.topleft.filled", title: "Choose a Method", description: "Tap the method selector to browse all 9 pixelation styles. Each shows a live preview of your image so you can compare: Standard, Kuwahara (painterly), K-Means (sharp clusters), Voronoi (organic cells), SLIC (content-aware), Dither (retro), Edge Detect, and more."),
-                HelpItem(icon: "slider.horizontal.3", title: "Adjust Block Size", description: "Use the slider to control intensity. Higher values = chunkier pixels. Previews update automatically as you drag."),
-                HelpItem(icon: "wand.and.stars", title: "Apply", description: "Tap Apply to process at full resolution with the selected method. The canvas shows the result."),
+                HelpItem(icon: "square.grid.3x3.topleft.filled", title: "Choose a Method", description: "Tap the method selector to pick a style: Standard, Kuwahara (painterly), K-Means (vibrant clusters), Quantize + Upscale (retro), Dither (Floyd-Steinberg), or Edge Detect."),
+                HelpItem(icon: "slider.horizontal.3", title: "Adjust Block Size & Colors", description: "Block Size controls how chunky the pixels are. For palette-based methods, the Colors slider sets how many colors to reduce to."),
+                HelpItem(icon: "wand.and.stars", title: "Apply", description: "Tap Apply to process at full resolution. Use the Before/After toggle to compare with the original."),
                 HelpItem(icon: "square.and.arrow.up", title: "Export", description: "Use the share button to save or share the pixelated result."),
                 HelpItem(icon: "xmark.circle", title: "Start Over", description: "Tap the red ✕ in the toolbar to clear everything and start fresh with a new image.")
             ]
