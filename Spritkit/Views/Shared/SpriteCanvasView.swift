@@ -25,7 +25,6 @@ struct SpriteCanvasView: View {
         ZStack {
             // Transparency checkerboard.
             CheckerboardView()
-                .opacity(0.3)
             
             Image(decorative: image, scale: 1.0)
                 .interpolation(.none)
@@ -65,8 +64,13 @@ struct SpriteCanvasView: View {
             }
         }
         .clipped()
-        .background(Color(uiColor: .systemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(Theme.panel)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.radius)
+                .strokeBorder(Theme.steelDark, lineWidth: Theme.border)
+        )
+        .padding(8)
     }
 }
 
@@ -75,8 +79,8 @@ struct SpriteCanvasView: View {
 // Checkerboard pattern indicating transparency.
 struct CheckerboardView: View {
     var squareSize: CGFloat = 10
-    var color1: Color = Color(white: 0.85)
-    var color2: Color = Color(white: 0.95)
+    var color1: Color = Color(hex: "3A2E31")
+    var color2: Color = Color(hex: "2A1E21")
     
     var body: some View {
         Canvas { context, size in

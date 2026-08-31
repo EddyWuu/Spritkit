@@ -17,20 +17,17 @@ struct AnimationPreviewView: View {
             VStack(spacing: 0) {
                 if !viewModel.clips.isEmpty {
                     clipPicker
-                    Divider()
                 }
                 
                 canvasSection
                 
-                Divider()
-                
                 if viewModel.hasFrames {
                     timelineStrip
-                    Divider()
                 }
                 
                 controlsSection
             }
+            .background(Theme.ink)
             .navigationTitle("Animation Preview")
             .toolbar {
                 if viewModel.hasFrames {
@@ -64,7 +61,7 @@ struct AnimationPreviewView: View {
     private var clipPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                clipChip(name: "All Frames", color: .gray, isActive: viewModel.activeClip == nil) {
+                clipChip(name: "All Frames", color: Theme.steel, isActive: viewModel.activeClip == nil) {
                     viewModel.selectClip(nil)
                 }
                 
@@ -77,27 +74,29 @@ struct AnimationPreviewView: View {
             .padding(.horizontal)
             .padding(.vertical, 8)
         }
-        .background(Color(uiColor: .secondarySystemBackground))
+        .background(Theme.panel)
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.steelDark).frame(height: 1) }
     }
     
     private func clipChip(name: String, color: Color, isActive: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 4) {
-                Circle()
+            HStack(spacing: 5) {
+                RoundedRectangle(cornerRadius: 2)
                     .fill(color)
                     .frame(width: 8, height: 8)
                 Text(name)
-                    .font(.caption.weight(isActive ? .bold : .regular))
+                    .font(.pixel(11, weight: isActive ? .heavy : .medium))
             }
+            .foregroundStyle(isActive ? Theme.onDark : Theme.onDarkDim)
             .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.vertical, 7)
             .background(
-                isActive ? color.opacity(0.2) : Color(uiColor: .tertiarySystemBackground),
-                in: Capsule()
+                RoundedRectangle(cornerRadius: Theme.radius)
+                    .fill(isActive ? color.opacity(0.25) : Theme.panelLight)
             )
             .overlay(
-                Capsule()
-                    .stroke(isActive ? color : Color.clear, lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: Theme.radius)
+                    .strokeBorder(isActive ? color : Theme.steelDark, lineWidth: isActive ? 2 : 1)
             )
         }
         .buttonStyle(.plain)
@@ -111,20 +110,21 @@ struct AnimationPreviewView: View {
             SpriteCanvasView(image: image)
                 .frame(maxHeight: .infinity)
                 .overlay(alignment: .topTrailing) {
-                    Text(viewModel.currentFrameLabel)
-                        .font(.caption.monospaced())
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .padding(8)
+                    PixelBadge {
+                        Text(viewModel.currentFrameLabel)
+                            .font(.pixel(11, weight: .bold))
+                            .foregroundStyle(Theme.onDark)
+                    }
+                    .padding(8)
                 }
         } else {
-            ContentUnavailableView {
-                Label("No Frames Loaded", systemImage: "play.rectangle")
-            } description: {
-                Text("Use the Sheet Cutter to slice a sprite sheet, then preview the animation here.")
+            PixelEmptyState(
+                icon: "play.rectangle",
+                title: "No Frames Loaded",
+                message: "Use the Sheet Cutter to slice a sprite sheet, then preview the animation here."
+            ) {
+                EmptyView()
             }
-            .frame(maxHeight: .infinity)
         }
     }
     
@@ -139,13 +139,13 @@ struct AnimationPreviewView: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 44, height: 44)
-                        .background(CheckerboardView().opacity(0.2))
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .background(CheckerboardView())
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 4)
-                                .stroke(
-                                    index == viewModel.currentFrameIndex ? Color.accentColor : Color.clear,
-                                    lineWidth: 2
+                            RoundedRectangle(cornerRadius: Theme.radius)
+                                .strokeBorder(
+                                    index == viewModel.currentFrameIndex ? Theme.accent : Theme.steelDark,
+                                    lineWidth: index == viewModel.currentFrameIndex ? 3 : 1
                                 )
                         )
                         .onTapGesture {
@@ -157,61 +157,65 @@ struct AnimationPreviewView: View {
             .padding(.horizontal)
             .padding(.vertical, 8)
         }
-        .frame(height: 60)
-        .background(Color(uiColor: .secondarySystemBackground))
+        .frame(height: 62)
+        .background(Theme.panel)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.steelDark).frame(height: 1) }
     }
     
     // MARK: - Controls
     
     private var controlsSection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 14) {
             HStack(spacing: 20) {
                 Button { viewModel.stop() } label: {
                     Image(systemName: "stop.fill")
                         .font(.title3)
+                        .foregroundStyle(Theme.onDark)
                 }
                 .disabled(!viewModel.hasFrames)
                 
                 Button { viewModel.stepBackward() } label: {
                     Image(systemName: "backward.frame.fill")
                         .font(.title3)
+                        .foregroundStyle(Theme.onDark)
                 }
                 .disabled(!viewModel.hasFrames)
                 
                 Button { viewModel.togglePlayback() } label: {
                     Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
                         .font(.title)
-                        .frame(width: 44, height: 44)
-                        .background(Color.accentColor)
+                        .frame(width: 52, height: 52)
+                        .background(
+                            RoundedRectangle(cornerRadius: Theme.radius)
+                                .fill(Theme.accent)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.radius)
+                                .strokeBorder(.black.opacity(0.35), lineWidth: Theme.border)
+                        )
                         .foregroundStyle(.white)
-                        .clipShape(Circle())
                 }
                 .disabled(!viewModel.hasFrames)
                 
                 Button { viewModel.stepForward() } label: {
                     Image(systemName: "forward.frame.fill")
                         .font(.title3)
+                        .foregroundStyle(Theme.onDark)
                 }
                 .disabled(!viewModel.hasFrames)
             }
+            .opacity(viewModel.hasFrames ? 1 : 0.4)
             
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("Speed")
-                        .font(.subheadline.weight(.medium))
-                    Spacer()
+                    PixelSectionHeader(title: "Speed")
                     Text("\(Int(viewModel.fps)) FPS")
-                        .font(.subheadline.monospaced())
-                        .foregroundStyle(.secondary)
+                        .font(.pixel(13, weight: .heavy))
+                        .foregroundStyle(Theme.accent)
                 }
                 
-                Slider(value: $viewModel.fps, in: 1...60, step: 1) {
-                    Text("FPS")
-                } minimumValueLabel: {
-                    Text("1").font(.caption2)
-                } maximumValueLabel: {
-                    Text("60").font(.caption2)
-                }
+                Slider(value: $viewModel.fps, in: 1...60, step: 1)
+                    .tint(Theme.accent)
             }
             
             Picker("Mode", selection: $viewModel.playbackMode) {
@@ -222,7 +226,7 @@ struct AnimationPreviewView: View {
             .pickerStyle(.segmented)
         }
         .padding()
-        .background(Color(uiColor: .systemBackground))
+        .background(Theme.ink)
     }
 }
 

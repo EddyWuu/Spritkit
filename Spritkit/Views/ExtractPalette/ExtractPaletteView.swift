@@ -24,8 +24,6 @@ struct ExtractPaletteView: View {
             VStack(spacing: 0) {
                 imageSection
                 
-                Divider()
-                
                 if let palette = viewModel.palette {
                     Picker("View", selection: $viewMode) {
                         ForEach(PaletteViewMode.allCases, id: \.self) { mode in
@@ -34,7 +32,7 @@ struct ExtractPaletteView: View {
                     }
                     .pickerStyle(.segmented)
                     .padding(.horizontal)
-                    .padding(.top, 8)
+                    .padding(.top, 10)
                     
                     switch viewMode {
                     case .swatches:
@@ -44,10 +42,9 @@ struct ExtractPaletteView: View {
                     }
                 }
                 
-                Divider()
-                
                 controlsSection
             }
+            .background(Theme.ink)
             .navigationTitle("Extract Palette")
             .toolbar {
                 if viewModel.sourceImage != nil {
@@ -93,34 +90,46 @@ struct ExtractPaletteView: View {
             SpriteCanvasView(image: image)
                 .frame(height: 200)
                 .overlay(alignment: .topLeading) {
-                    Text(viewModel.inputDimensions)
-                        .font(.caption.monospaced())
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .padding(8)
+                    PixelBadge {
+                        Text(viewModel.inputDimensions)
+                            .font(.pixel(11, weight: .bold))
+                            .foregroundStyle(Theme.onDark)
+                    }
+                    .padding(8)
                 }
                 .overlay {
                     if viewModel.isProcessing {
-                        ProgressView("Extracting…")
-                            .padding()
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        VStack(spacing: 10) {
+                            ProgressView().tint(Theme.accent)
+                            Text("EXTRACTING…")
+                                .font(.pixel(11, weight: .heavy))
+                                .tracking(1)
+                                .foregroundStyle(Theme.onDark)
+                        }
+                        .padding(20)
+                        .background(
+                            RoundedRectangle(cornerRadius: Theme.radius)
+                                .fill(Theme.panel)
+                                .overlay(RoundedRectangle(cornerRadius: Theme.radius)
+                                    .strokeBorder(Theme.steelDark, lineWidth: Theme.border))
+                        )
                     }
                 }
         } else {
-            ContentUnavailableView {
-                Label("No Image Selected", systemImage: "paintpalette")
-            } description: {
-                Text("Import an image to extract its color palette.")
-            } actions: {
+            PixelEmptyState(
+                icon: "paintpalette",
+                title: "No Image Loaded",
+                message: "Import an image to extract its color palette."
+            ) {
                 ImagePickerView(
                     selectedImage: $viewModel.sourceImage,
                     label: "Select Image",
                     systemImage: "photo.badge.plus"
                 )
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PixelButtonStyle())
+                .fixedSize()
             }
-            .frame(height: 200)
+            .frame(height: 260)
         }
     }
     
@@ -140,22 +149,23 @@ struct ExtractPaletteView: View {
     
     private func colorSwatch(_ color: PaletteColor) -> some View {
         VStack(spacing: 4) {
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: Theme.radius)
                 .fill(color.color)
                 .aspectRatio(1, contentMode: .fit)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.primary.opacity(0.2), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: Theme.radius)
+                        .strokeBorder(Theme.steelDark, lineWidth: 1)
                 )
                 .overlay {
                     if viewModel.selectedColor?.id == color.id {
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.accentColor, lineWidth: 3)
+                        RoundedRectangle(cornerRadius: Theme.radius)
+                            .strokeBorder(Theme.accent, lineWidth: 3)
                     }
                 }
             
             Text(color.hex)
-                .font(.system(.caption2, design: .monospaced))
+                .font(.pixel(10, weight: .bold))
+                .foregroundStyle(Theme.onDark)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
@@ -176,9 +186,9 @@ struct ExtractPaletteView: View {
     private func hexList(_ palette: Palette) -> some View {
         VStack(spacing: 0) {
             HStack {
-                Text("\(palette.colorCount) colors")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text("\(palette.colorCount) COLORS")
+                    .font(.pixel(11, weight: .bold))
+                    .foregroundStyle(Theme.onDarkDim)
                 Spacer()
                 Button {
                     UIPasteboard.general.string = palette.hexColors.joined(separator: "\n")
@@ -188,34 +198,44 @@ struct ExtractPaletteView: View {
                     }
                 } label: {
                     Label(copiedAll ? "Copied!" : "Copy All", systemImage: copiedAll ? "checkmark" : "doc.on.doc")
-                        .font(.caption)
                 }
-                .buttonStyle(.bordered)
-                .tint(copiedAll ? .green : .accentColor)
+                .buttonStyle(PixelSecondaryButtonStyle())
             }
             .padding(.horizontal)
             .padding(.vertical, 8)
             
-            List {
-                ForEach(palette.colors) { color in
-                    HStack {
-                        Text(color.hex)
-                            .font(.system(.body, design: .monospaced))
-                        Spacer()
-                        Image(systemName: viewModel.selectedColor?.id == color.id ? "checkmark" : "doc.on.doc")
-                            .font(.caption)
-                            .foregroundStyle(viewModel.selectedColor?.id == color.id ? .green : .secondary)
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        UIPasteboard.general.string = color.hex
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            viewModel.selectedColor = color
+            ScrollView {
+                LazyVStack(spacing: 6) {
+                    ForEach(palette.colors) { color in
+                        let selected = viewModel.selectedColor?.id == color.id
+                        HStack {
+                            Text(color.hex)
+                                .font(.pixel(15, weight: .bold))
+                                .foregroundStyle(Theme.onDark)
+                            Spacer()
+                            Image(systemName: selected ? "checkmark" : "doc.on.doc")
+                                .font(.pixel(12, weight: .bold))
+                                .foregroundStyle(selected ? Theme.accent : Theme.steel)
+                        }
+                        .padding(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: Theme.radius)
+                                .fill(Theme.panel)
+                                .overlay(RoundedRectangle(cornerRadius: Theme.radius)
+                                    .strokeBorder(selected ? Theme.accent : Theme.steelDark, lineWidth: selected ? 2 : 1))
+                        )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            UIPasteboard.general.string = color.hex
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                viewModel.selectedColor = color
+                            }
                         }
                     }
                 }
+                .padding(.horizontal)
+                .padding(.bottom, 8)
             }
-            .listStyle(.plain)
         }
         .frame(maxHeight: .infinity)
     }
@@ -223,25 +243,28 @@ struct ExtractPaletteView: View {
     // MARK: - Controls
     
     private var controlsSection: some View {
-        VStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
+        VStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("Max Colors")
-                        .font(.subheadline.weight(.medium))
-                    Spacer()
+                    PixelSectionHeader(title: "Max Colors")
                     Text("\(viewModel.maxColors)")
-                        .font(.subheadline.monospaced())
-                        .foregroundStyle(.secondary)
+                        .font(.pixel(13, weight: .heavy))
+                        .foregroundStyle(Theme.accent)
                 }
                 
-                HStack {
+                HStack(spacing: 8) {
                     ForEach(ExtractPaletteViewModel.colorPresets, id: \.self) { preset in
+                        let active = viewModel.maxColors == preset
                         Button("\(preset)") {
                             viewModel.maxColors = preset
                         }
-                        .buttonStyle(.bordered)
-                        .tint(viewModel.maxColors == preset ? .accentColor : .secondary)
-                        .font(.caption)
+                        .buttonStyle(PixelSecondaryButtonStyle())
+                        .overlay(
+                            active
+                            ? RoundedRectangle(cornerRadius: Theme.radius)
+                                .strokeBorder(Theme.accent, lineWidth: 2)
+                            : nil
+                        )
                     }
                 }
             }
@@ -251,38 +274,41 @@ struct ExtractPaletteView: View {
             } label: {
                 HStack {
                     Image(systemName: "paintpalette.fill")
-                    Text("Extract Palette")
+                    Text("EXTRACT PALETTE")
                 }
-                .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(PixelButtonStyle())
             .disabled(viewModel.sourceImage == nil || viewModel.isProcessing)
+            .opacity(viewModel.sourceImage == nil || viewModel.isProcessing ? 0.5 : 1)
             
             if let selected = viewModel.selectedColor {
-                HStack {
-                    Circle()
+                HStack(spacing: 8) {
+                    RoundedRectangle(cornerRadius: 3)
                         .fill(selected.color)
                         .frame(width: 20, height: 20)
+                        .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Theme.steelDark, lineWidth: 1))
                     Text(selected.hex)
-                        .font(.caption.monospaced())
-                    Text("• \(selected.frequency) pixels")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.pixel(12, weight: .bold))
+                        .foregroundStyle(Theme.onDark)
+                    Text("\(selected.frequency) px")
+                        .font(.pixel(11, weight: .medium))
+                        .foregroundStyle(Theme.onDarkDim)
                     Spacer()
-                    Text("Copied!")
-                        .font(.caption)
-                        .foregroundStyle(.green)
+                    Text("COPIED!")
+                        .font(.pixel(11, weight: .heavy))
+                        .foregroundStyle(Theme.accent)
                 }
             }
             
             if let error = viewModel.errorMessage {
                 Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .font(.pixel(11, weight: .medium))
+                    .foregroundStyle(Theme.accentBright)
             }
         }
         .padding()
-        .background(Color(uiColor: .systemBackground))
+        .padding(.trailing, Theme.shadowOffset)
+        .background(Theme.ink)
     }
 }
 

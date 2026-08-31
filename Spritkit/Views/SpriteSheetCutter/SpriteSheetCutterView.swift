@@ -23,20 +23,17 @@ struct SpriteSheetCutterView: View {
             VStack(spacing: 0) {
                 canvasSection
                 
-                Divider()
-                
                 if !viewModel.cutFrames.isEmpty {
                     framesStrip
-                    Divider()
                 }
                 
                 if !viewModel.clips.isEmpty {
                     clipsSection
-                    Divider()
                 }
                 
                 controlsSection
             }
+            .background(Theme.ink)
             .navigationTitle("Sheet Cutter")
             .toolbar {
                 if viewModel.sourceImage != nil {
@@ -93,40 +90,51 @@ struct SpriteSheetCutterView: View {
             )
             .frame(maxHeight: .infinity)
             .overlay(alignment: .topLeading) {
-                HStack(spacing: 8) {
-                    Text(viewModel.inputDimensions)
-                    if viewModel.sliceMode == .grid {
-                        Text("Frame: \(viewModel.frameDimensions)")
-                            .foregroundStyle(.secondary)
+                PixelBadge {
+                    HStack(spacing: 8) {
+                        Text(viewModel.inputDimensions)
+                            .foregroundStyle(Theme.onDark)
+                        if viewModel.sliceMode == .grid {
+                            Text("FRAME \(viewModel.frameDimensions)")
+                                .foregroundStyle(Theme.accent)
+                        }
                     }
+                    .font(.pixel(11, weight: .bold))
                 }
-                .font(.caption.monospaced())
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(.ultraThinMaterial, in: Capsule())
                 .padding(8)
             }
             .overlay {
                 if viewModel.isProcessing {
-                    ProgressView("Slicing…")
-                        .padding()
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    VStack(spacing: 10) {
+                        ProgressView().tint(Theme.accent)
+                        Text("SLICING…")
+                            .font(.pixel(11, weight: .heavy))
+                            .tracking(1)
+                            .foregroundStyle(Theme.onDark)
+                    }
+                    .padding(20)
+                    .background(
+                        RoundedRectangle(cornerRadius: Theme.radius)
+                            .fill(Theme.panel)
+                            .overlay(RoundedRectangle(cornerRadius: Theme.radius)
+                                .strokeBorder(Theme.steelDark, lineWidth: Theme.border))
+                    )
                 }
             }
         } else {
-            ContentUnavailableView {
-                Label("No Sprite Sheet", systemImage: "rectangle.split.3x3")
-            } description: {
-                Text("Import a sprite sheet to slice it into individual frames.")
-            } actions: {
+            PixelEmptyState(
+                icon: "rectangle.split.3x3",
+                title: "No Sprite Sheet",
+                message: "Import a sprite sheet to slice it into individual frames."
+            ) {
                 ImagePickerView(
                     selectedImage: $importedImage,
                     label: "Select Sheet",
                     systemImage: "photo.badge.plus"
                 )
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PixelButtonStyle())
+                .fixedSize()
             }
-            .frame(maxHeight: .infinity)
         }
     }
     
@@ -135,22 +143,24 @@ struct SpriteSheetCutterView: View {
     private var framesStrip: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text("\(viewModel.frameCount) Frames")
-                    .font(.caption.weight(.medium))
+                Text("\(viewModel.frameCount) FRAMES")
+                    .font(.pixel(11, weight: .heavy))
+                    .foregroundStyle(Theme.onDark)
                 
                 Spacer()
                 
                 if !viewModel.selectedFrameIndices.isEmpty {
-                    Text("\(viewModel.selectedFrameIndices.count) selected")
-                        .font(.caption)
-                        .foregroundStyle(Color.accentColor)
+                    Text("\(viewModel.selectedFrameIndices.count) SELECTED")
+                        .font(.pixel(10, weight: .bold))
+                        .foregroundStyle(Theme.accent)
                 }
                 
                 Button {
                     showingSaveAllConfirm = true
                 } label: {
                     Image(systemName: "square.and.arrow.down.on.square")
-                        .font(.caption)
+                        .font(.pixel(13, weight: .bold))
+                        .foregroundStyle(Theme.steel)
                 }
                 .confirmationDialog("Save All Frames", isPresented: $showingSaveAllConfirm) {
                     Button("Save \(viewModel.cutFrames.count) Frames to Photos") {
@@ -167,16 +177,17 @@ struct SpriteSheetCutterView: View {
                         viewModel.selectAll()
                     }
                 } label: {
-                    Text(viewModel.selectedFrameIndices.count == viewModel.cutFrames.count ? "Deselect All" : "Select All")
-                        .font(.caption)
+                    Text(viewModel.selectedFrameIndices.count == viewModel.cutFrames.count ? "Deselect" : "Select All")
+                        .font(.pixel(10, weight: .bold))
+                        .foregroundStyle(Theme.accent)
                 }
             }
             .padding(.horizontal)
             .padding(.top, 8)
             
-            Text("Tap frames to select, then create animation clips")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            Text("Tap frames to select, then create clips")
+                .font(.pixel(9, weight: .medium))
+                .foregroundStyle(Theme.onDarkDim)
                 .padding(.horizontal)
             
             ScrollView(.horizontal, showsIndicators: false) {
@@ -190,7 +201,8 @@ struct SpriteSheetCutterView: View {
             }
         }
         .frame(height: 130)
-        .background(Color(uiColor: .secondarySystemBackground))
+        .background(Theme.panel)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.steelDark).frame(height: 1) }
     }
     
     private func frameThumb(index: Int, image: CGImage) -> some View {
@@ -210,12 +222,12 @@ struct SpriteSheetCutterView: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 56, height: 56)
-                .background(CheckerboardView().opacity(0.3))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .background(CheckerboardView())
+                .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(
-                            isSelected ? Color.accentColor : Color.secondary.opacity(0.3),
+                    RoundedRectangle(cornerRadius: Theme.radius)
+                        .strokeBorder(
+                            isSelected ? Theme.accent : Theme.steelDark,
                             lineWidth: isSelected ? 3 : 1
                         )
                 )
@@ -223,14 +235,14 @@ struct SpriteSheetCutterView: View {
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.caption2)
-                            .foregroundStyle(Color.white, Color.accentColor)
+                            .foregroundStyle(Color.white, Theme.accent)
                             .offset(x: 4, y: -4)
                     }
                 }
             
             Text("\(index)")
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .font(.pixel(10, weight: .bold))
+                .foregroundStyle(isSelected ? Theme.accent : Theme.onDarkDim)
         }
         .onTapGesture {
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -266,8 +278,9 @@ struct SpriteSheetCutterView: View {
     
     private var clipsSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Animation Clips")
-                .font(.caption.weight(.medium))
+            Text("ANIMATION CLIPS")
+                .font(.pixel(11, weight: .heavy))
+                .foregroundStyle(Theme.onDark)
                 .padding(.horizontal)
                 .padding(.top, 8)
             
@@ -281,24 +294,26 @@ struct SpriteSheetCutterView: View {
                 .padding(.bottom, 8)
             }
         }
-        .frame(height: 90)
-        .background(Color(uiColor: .tertiarySystemBackground))
+        .frame(height: 100)
+        .background(Theme.panelLight)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.steelDark).frame(height: 1) }
     }
     
     private func clipCard(_ clip: AnimationClip) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
-                Circle()
+                RoundedRectangle(cornerRadius: 2)
                     .fill(clip.colorTag.color)
                     .frame(width: 8, height: 8)
                 Text(clip.name)
-                    .font(.caption.weight(.medium))
+                    .font(.pixel(12, weight: .heavy))
+                    .foregroundStyle(Theme.onDark)
                     .lineLimit(1)
             }
             
-            Text("\(clip.frameCount) frames")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            Text("\(clip.frameCount) FRAMES")
+                .font(.pixel(9, weight: .bold))
+                .foregroundStyle(Theme.onDarkDim)
             
             HStack(spacing: 6) {
                 Button {
@@ -306,10 +321,12 @@ struct SpriteSheetCutterView: View {
                     onSendToAnimate()
                 } label: {
                     Label("Preview", systemImage: "play.fill")
-                        .font(.caption2)
+                        .font(.pixel(10, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.vertical, 5)
+                        .padding(.horizontal, 8)
+                        .background(RoundedRectangle(cornerRadius: Theme.radius).fill(Theme.accent))
                 }
-                .buttonStyle(.bordered)
-                .tint(.green)
                 
                 Button(role: .destructive) {
                     withAnimation {
@@ -317,14 +334,19 @@ struct SpriteSheetCutterView: View {
                     }
                 } label: {
                     Image(systemName: "trash")
-                        .font(.caption2)
+                        .font(.pixel(10, weight: .bold))
+                        .foregroundStyle(Theme.onDarkDim)
+                        .padding(5)
+                        .background(RoundedRectangle(cornerRadius: Theme.radius).fill(Theme.steelDark))
                 }
-                .buttonStyle(.bordered)
-                .tint(.red)
             }
         }
         .padding(8)
-        .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 8))
+        .background(
+            RoundedRectangle(cornerRadius: Theme.radius)
+                .fill(Theme.panel)
+                .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.steelDark, lineWidth: 1))
+        )
     }
     
     // MARK: - Create Clip Sheet
@@ -393,8 +415,8 @@ struct SpriteSheetCutterView: View {
                 gridControls
             } else {
                 Text("Auto-detect finds non-transparent regions as frames.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.pixel(11, weight: .medium))
+                    .foregroundStyle(Theme.onDarkDim)
             }
             
             Button {
@@ -402,12 +424,12 @@ struct SpriteSheetCutterView: View {
             } label: {
                 HStack {
                     Image(systemName: "scissors")
-                    Text("Slice Sheet")
+                    Text("SLICE SHEET")
                 }
-                .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(PixelButtonStyle())
             .disabled(viewModel.sourceImage == nil || viewModel.isProcessing)
+            .opacity(viewModel.sourceImage == nil || viewModel.isProcessing ? 0.5 : 1)
             
             if !viewModel.cutFrames.isEmpty {
                 HStack(spacing: 12) {
@@ -416,13 +438,12 @@ struct SpriteSheetCutterView: View {
                     } label: {
                         HStack {
                             Image(systemName: "tag.fill")
-                            Text("Create Clip")
+                            Text("CREATE CLIP")
                         }
-                        .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(.orange)
+                    .buttonStyle(PixelButtonStyle(tint: Theme.maroon))
                     .disabled(viewModel.selectedFrameIndices.isEmpty)
+                    .opacity(viewModel.selectedFrameIndices.isEmpty ? 0.5 : 1)
                     
                     Button {
                         animationVM.loadFrames(viewModel.cutFrames)
@@ -430,23 +451,22 @@ struct SpriteSheetCutterView: View {
                     } label: {
                         HStack {
                             Image(systemName: "play.rectangle.fill")
-                            Text("All → Animate")
+                            Text("ALL → ANIMATE")
                         }
-                        .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(.green)
+                    .buttonStyle(PixelButtonStyle(tint: Theme.steelDark))
                 }
             }
             
             if let error = viewModel.errorMessage {
                 Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .font(.pixel(11, weight: .medium))
+                    .foregroundStyle(Theme.accentBright)
             }
         }
         .padding()
-        .background(Color(uiColor: .systemBackground))
+        .padding(.trailing, Theme.shadowOffset)
+        .background(Theme.ink)
     }
     
     private var gridControls: some View {
@@ -459,9 +479,13 @@ struct SpriteSheetCutterView: View {
     
     private func gridRow(label: String, value: Binding<Int>, range: ClosedRange<Int>, suffix: String) -> some View {
         HStack {
-            Text(label)
-                .font(.subheadline)
-                .frame(width: 80, alignment: .leading)
+            HStack(spacing: 6) {
+                Rectangle().fill(Theme.accent).frame(width: 8, height: 16)
+                Text(label.uppercased())
+                    .font(.pixel(12, weight: .heavy))
+                    .foregroundStyle(Theme.onDark)
+            }
+            .frame(width: 120, alignment: .leading)
             
             Spacer()
             
@@ -471,24 +495,29 @@ struct SpriteSheetCutterView: View {
                         value.wrappedValue -= 1
                     }
                 } label: {
-                    Image(systemName: "minus.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
+                    Image(systemName: "minus")
+                        .font(.pixel(14, weight: .heavy))
+                        .foregroundStyle(Theme.onDark)
+                        .frame(width: 30, height: 30)
+                        .background(RoundedRectangle(cornerRadius: Theme.radius).fill(Theme.steelDark))
                 }
                 .disabled(value.wrappedValue <= range.lowerBound)
                 
                 Text("\(value.wrappedValue)\(suffix)")
-                    .font(.subheadline.monospaced().weight(.medium))
-                    .frame(width: 50)
+                    .font(.pixel(15, weight: .heavy))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 54)
                 
                 Button {
                     if value.wrappedValue < range.upperBound {
                         value.wrappedValue += 1
                     }
                 } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
+                    Image(systemName: "plus")
+                        .font(.pixel(14, weight: .heavy))
+                        .foregroundStyle(Theme.onDark)
+                        .frame(width: 30, height: 30)
+                        .background(RoundedRectangle(cornerRadius: Theme.radius).fill(Theme.steelDark))
                 }
                 .disabled(value.wrappedValue >= range.upperBound)
             }

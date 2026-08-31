@@ -24,37 +24,48 @@ struct HelpSheetView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 18) {
                     Text(subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(.pixel(12, weight: .medium))
+                        .foregroundStyle(Theme.onDarkDim)
                         .padding(.horizontal)
                     
                     ForEach(items) { item in
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: item.icon)
                                 .font(.title3)
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(Theme.accent)
                                 .frame(width: 28)
                             
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(item.title)
-                                    .font(.subheadline.weight(.semibold))
+                                    .font(.pixel(13, weight: .heavy))
+                                    .foregroundStyle(Theme.onDark)
                                 Text(item.description)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .font(.pixel(11, weight: .medium))
+                                    .foregroundStyle(Theme.onDarkDim)
                             }
                         }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: Theme.radius)
+                                .fill(Theme.panel)
+                                .overlay(RoundedRectangle(cornerRadius: Theme.radius)
+                                    .strokeBorder(Theme.steelDark, lineWidth: 1))
+                        )
                         .padding(.horizontal)
                     }
                 }
                 .padding(.vertical)
             }
+            .background(Theme.ink)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
+                        .font(.pixel(14, weight: .heavy))
                 }
             }
         }

@@ -16,9 +16,9 @@ struct ScaleSpriteView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 canvasSection
-                Divider()
                 controlsSection
             }
+            .background(Theme.ink)
             .navigationTitle("Scale Sprite")
             .toolbar {
                 if viewModel.sourceImage != nil {
@@ -74,52 +74,68 @@ struct ScaleSpriteView: View {
                 }
                 .overlay {
                     if viewModel.isProcessing {
-                        ProgressView("Scaling…")
-                            .padding()
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        VStack(spacing: 10) {
+                            ProgressView().tint(Theme.accent)
+                            Text("SCALING…")
+                                .font(.pixel(11, weight: .heavy))
+                                .tracking(1)
+                                .foregroundStyle(Theme.onDark)
+                        }
+                        .padding(20)
+                        .background(
+                            RoundedRectangle(cornerRadius: Theme.radius)
+                                .fill(Theme.panel)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: Theme.radius)
+                                        .strokeBorder(Theme.steelDark, lineWidth: Theme.border)
+                                )
+                        )
                     }
                 }
         } else {
-            ContentUnavailableView {
-                Label("No Image Selected", systemImage: "arrow.up.left.and.arrow.down.right")
-            } description: {
-                Text("Import a sprite to scale it with nearest-neighbor interpolation.")
-            } actions: {
+            PixelEmptyState(
+                icon: "arrow.up.left.and.arrow.down.right",
+                title: "No Sprite Loaded",
+                message: "Import a sprite to scale it with nearest-neighbor interpolation."
+            ) {
                 ImagePickerView(
                     selectedImage: $viewModel.sourceImage,
                     label: "Select Sprite",
                     systemImage: "photo.badge.plus"
                 )
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PixelButtonStyle())
+                .fixedSize()
             }
-            .frame(maxHeight: .infinity)
         }
     }
     
     private var dimensionBadge: some View {
-        HStack(spacing: 8) {
-            if viewModel.sourceImage != nil {
-                Text("In: \(viewModel.inputDimensions)")
+        PixelBadge {
+            HStack(spacing: 8) {
+                if viewModel.sourceImage != nil {
+                    Text("IN \(viewModel.inputDimensions)")
+                }
+                if viewModel.outputImage != nil {
+                    Text("OUT \(viewModel.outputDimensions)")
+                        .foregroundStyle(Theme.accent)
+                } else if viewModel.sourceImage != nil {
+                    Text("→ \(viewModel.previewDimensions)")
+                        .foregroundStyle(Theme.accent)
+                }
             }
-            if viewModel.outputImage != nil {
-                Text("Out: \(viewModel.outputDimensions)")
-            } else if viewModel.sourceImage != nil {
-                Text("→ \(viewModel.previewDimensions)")
-                    .foregroundStyle(.secondary)
-            }
+            .font(.pixel(11, weight: .bold))
+            .foregroundStyle(Theme.onDark)
         }
-        .font(.caption.monospaced())
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(.ultraThinMaterial, in: Capsule())
     }
     
     // MARK: - Controls
     
     private var controlsSection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 14) {
             Toggle("Custom Dimensions", isOn: $viewModel.useCustomDimensions)
-                .font(.subheadline)
+                .font(.pixel(13, weight: .bold))
+                .foregroundStyle(Theme.onDark)
+                .tint(Theme.accent)
             
             if viewModel.useCustomDimensions {
                 customDimensionsControls
@@ -132,64 +148,68 @@ struct ScaleSpriteView: View {
             } label: {
                 HStack {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    Text("Scale")
+                    Text("SCALE")
                 }
-                .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(PixelButtonStyle())
             .disabled(viewModel.sourceImage == nil || viewModel.isProcessing)
+            .opacity(viewModel.sourceImage == nil || viewModel.isProcessing ? 0.5 : 1)
             
             if let error = viewModel.errorMessage {
                 Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .font(.pixel(11, weight: .medium))
+                    .foregroundStyle(Theme.accentBright)
             }
         }
         .padding()
-        .background(Color(uiColor: .systemBackground))
+        .padding(.trailing, Theme.shadowOffset)
+        .background(Theme.ink)
     }
     
     private var scaleFactorControls: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Scale Factor")
-                    .font(.subheadline.weight(.medium))
-                Spacer()
+                PixelSectionHeader(title: "Scale Factor")
                 Text("\(viewModel.scaleFactor, specifier: "%.1f")×")
-                    .font(.subheadline.monospaced())
-                    .foregroundStyle(.secondary)
+                    .font(.pixel(13, weight: .heavy))
+                    .foregroundStyle(Theme.accent)
             }
             
-            Slider(value: $viewModel.scaleFactor, in: 0.25...16, step: 0.25) {
-                Text("Scale")
-            } minimumValueLabel: {
-                Text("¼").font(.caption2)
-            } maximumValueLabel: {
-                Text("16").font(.caption2)
-            }
+            Slider(value: $viewModel.scaleFactor, in: 0.25...16, step: 0.25)
+                .tint(Theme.accent)
             
-            HStack {
+            HStack(spacing: 8) {
                 ForEach([0.5, 1.0, 2.0, 4.0, 8.0], id: \.self) { preset in
                     Button("\(preset, specifier: "%.0g")×") {
                         viewModel.scaleFactor = preset
                     }
-                    .buttonStyle(.bordered)
-                    .font(.caption)
+                    .buttonStyle(PixelSecondaryButtonStyle())
                 }
             }
         }
     }
     
     private var customDimensionsControls: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Toggle("Lock Aspect Ratio", isOn: $viewModel.lockAspectRatio)
-                .font(.caption)
+                .font(.pixel(12, weight: .bold))
+                .foregroundStyle(Theme.onDarkDim)
+                .tint(Theme.accent)
             
-            HStack {
-                VStack(alignment: .leading) {
-                    Text("Width").font(.caption)
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("WIDTH").font(.pixel(10, weight: .bold)).foregroundStyle(Theme.onDarkDim)
                     TextField("W", value: $viewModel.customWidth, format: .number)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
+                        .font(.pixel(15, weight: .bold))
+                        .foregroundStyle(Theme.onDark)
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: Theme.radius)
+                                .fill(Theme.panel)
+                                .overlay(RoundedRectangle(cornerRadius: Theme.radius)
+                                    .strokeBorder(Theme.steelDark, lineWidth: Theme.border))
+                        )
                         .keyboardType(.numberPad)
                         .onChange(of: viewModel.customWidth) { _, newVal in
                             if viewModel.lockAspectRatio {
@@ -199,12 +219,22 @@ struct ScaleSpriteView: View {
                 }
                 
                 Image(systemName: viewModel.lockAspectRatio ? "lock.fill" : "lock.open")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.accent)
+                    .padding(.top, 16)
                 
-                VStack(alignment: .leading) {
-                    Text("Height").font(.caption)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("HEIGHT").font(.pixel(10, weight: .bold)).foregroundStyle(Theme.onDarkDim)
                     TextField("H", value: $viewModel.customHeight, format: .number)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
+                        .font(.pixel(15, weight: .bold))
+                        .foregroundStyle(Theme.onDark)
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: Theme.radius)
+                                .fill(Theme.panel)
+                                .overlay(RoundedRectangle(cornerRadius: Theme.radius)
+                                    .strokeBorder(Theme.steelDark, lineWidth: Theme.border))
+                        )
                         .keyboardType(.numberPad)
                         .onChange(of: viewModel.customHeight) { _, newVal in
                             if viewModel.lockAspectRatio {

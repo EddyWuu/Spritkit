@@ -19,10 +19,9 @@ struct PixelateView: View {
             VStack(spacing: 0) {
                 canvasSection
                 
-                Divider()
-                
                 controlsSection
             }
+            .background(Theme.ink)
             .navigationTitle("Pixelate")
             .toolbar {
                 if viewModel.sourceImage != nil {
@@ -87,19 +86,41 @@ struct PixelateView: View {
                         } label: {
                             Label(showingOriginal ? "Original" : "Result",
                                   systemImage: showingOriginal ? "photo" : "wand.and.stars")
-                                .font(.caption.weight(.medium))
+                                .font(.pixel(11, weight: .bold))
+                                .foregroundStyle(Theme.onDark)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
-                                .background(.ultraThinMaterial, in: Capsule())
+                                .background(
+                                    RoundedRectangle(cornerRadius: Theme.radius)
+                                        .fill(Theme.panel.opacity(0.92))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: Theme.radius)
+                                                .strokeBorder(Theme.steelDark, lineWidth: 1)
+                                        )
+                                )
                         }
                         .padding(8)
                     }
                 }
                 .overlay {
                     if viewModel.isProcessing {
-                        ProgressView("Processing…")
-                            .padding()
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        VStack(spacing: 10) {
+                            ProgressView()
+                                .tint(Theme.accent)
+                            Text("PROCESSING…")
+                                .font(.pixel(11, weight: .heavy))
+                                .tracking(1)
+                                .foregroundStyle(Theme.onDark)
+                        }
+                        .padding(20)
+                        .background(
+                            RoundedRectangle(cornerRadius: Theme.radius)
+                                .fill(Theme.panel)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: Theme.radius)
+                                        .strokeBorder(Theme.steelDark, lineWidth: Theme.border)
+                                )
+                        )
                     }
                 }
         } else {
@@ -108,113 +129,136 @@ struct PixelateView: View {
     }
     
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No Image Selected", systemImage: "photo.on.rectangle.angled")
-        } description: {
-            Text("Import a photo to pixelate it into pixel art.")
-        } actions: {
+        VStack(spacing: 20) {
+            ZStack {
+                RoundedRectangle(cornerRadius: Theme.radius)
+                    .fill(Theme.panel)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.radius)
+                            .strokeBorder(Theme.steelDark, lineWidth: Theme.border)
+                    )
+                    .frame(width: 96, height: 96)
+                Image(systemName: "photo.on.rectangle.angled")
+                    .font(.system(size: 40))
+                    .foregroundStyle(Theme.steel)
+            }
+            .pixelShadow()
+            
+            VStack(spacing: 6) {
+                Text("NO IMAGE LOADED")
+                    .font(.pixel(16, weight: .heavy))
+                    .tracking(1)
+                    .foregroundStyle(Theme.onDark)
+                Text("Import a photo to pixelate it into pixel art.")
+                    .font(.pixel(12, weight: .medium))
+                    .foregroundStyle(Theme.onDarkDim)
+                    .multilineTextAlignment(.center)
+            }
+            
             ImagePickerView(
                 selectedImage: $viewModel.sourceImage,
                 label: "Select Photo",
                 systemImage: "photo.badge.plus"
             )
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(PixelButtonStyle())
+            .fixedSize()
         }
-        .frame(maxHeight: .infinity)
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.ink)
     }
     
     private var dimensionBadge: some View {
         HStack(spacing: 8) {
             if viewModel.sourceImage != nil {
-                Text("In: \(viewModel.inputDimensions)")
+                Text("IN \(viewModel.inputDimensions)")
             }
             if viewModel.outputImage != nil {
-                Text("Out: \(viewModel.outputDimensions)")
+                Text("OUT \(viewModel.outputDimensions)")
+                    .foregroundStyle(Theme.accent)
             }
         }
-        .font(.caption.monospaced())
+        .font(.pixel(11, weight: .bold))
+        .foregroundStyle(Theme.onDark)
         .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(.ultraThinMaterial, in: Capsule())
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.radius)
+                .fill(Theme.panel.opacity(0.92))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.radius)
+                        .strokeBorder(Theme.steelDark, lineWidth: 1)
+                )
+        )
     }
     
     // MARK: - Controls
     
     private var controlsSection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 14) {
             Button {
                 showingMethodPicker = true
             } label: {
-                HStack {
+                HStack(spacing: 10) {
                     Image(systemName: viewModel.selectedMethod.icon)
+                        .font(.system(size: 18))
+                        .foregroundStyle(Theme.accent)
+                        .frame(width: 28)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(viewModel.selectedMethod.displayName)
-                            .font(.subheadline.weight(.semibold))
+                            .font(.pixel(14, weight: .heavy))
+                            .foregroundStyle(Theme.onDark)
                         Text(viewModel.selectedMethod.shortDescription)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .font(.pixel(10, weight: .medium))
+                            .foregroundStyle(Theme.onDarkDim)
                             .lineLimit(1)
                     }
                     Spacer()
                     Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .font(.pixel(11, weight: .bold))
+                        .foregroundStyle(Theme.steel)
                 }
-                .padding(10)
-                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.radius)
+                        .fill(Theme.panel)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.radius)
+                                .strokeBorder(Theme.steelDark, lineWidth: Theme.border)
+                        )
+                )
             }
             .buttonStyle(.plain)
             .disabled(viewModel.sourceImage == nil)
             
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Block Size")
-                        .font(.subheadline.weight(.medium))
-                    Spacer()
-                    Text("\(Int(viewModel.blockSize))px")
-                        .font(.subheadline.monospaced())
-                        .foregroundStyle(.secondary)
-                }
-                
-                Slider(value: $viewModel.blockSize, in: 2...64, step: 1) {
-                    Text("Block Size")
-                } minimumValueLabel: {
-                    Text("2").font(.caption2)
-                } maximumValueLabel: {
-                    Text("64").font(.caption2)
-                }
-                .onChange(of: viewModel.blockSize) { _, _ in
-                    viewModel.outputImage = nil
-                    showingOriginal = false
-                }
+            sliderRow(
+                title: "Block Size",
+                value: "\(Int(viewModel.blockSize))px",
+                binding: Binding(
+                    get: { Double(viewModel.blockSize) },
+                    set: { viewModel.blockSize = CGFloat($0) }
+                ),
+                range: 2...64
+            )
+            .onChange(of: viewModel.blockSize) { _, _ in
+                viewModel.outputImage = nil
+                showingOriginal = false
             }
             
             // Palette size — palette-based methods only.
             if viewModel.selectedMethod.usesPalette {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Colors")
-                            .font(.subheadline.weight(.medium))
-                        Spacer()
-                        Text("\(viewModel.colorCount)")
-                            .font(.subheadline.monospaced())
-                            .foregroundStyle(.secondary)
-                    }
-                    
-                    Slider(value: Binding(
+                sliderRow(
+                    title: "Colors",
+                    value: "\(viewModel.colorCount)",
+                    binding: Binding(
                         get: { Double(viewModel.colorCount) },
                         set: { viewModel.colorCount = Int($0) }
-                    ), in: 2...64, step: 1) {
-                        Text("Colors")
-                    } minimumValueLabel: {
-                        Text("2").font(.caption2)
-                    } maximumValueLabel: {
-                        Text("64").font(.caption2)
-                    }
-                    .onChange(of: viewModel.colorCount) { _, _ in
-                        viewModel.outputImage = nil
-                        showingOriginal = false
-                    }
+                    ),
+                    range: 2...64
+                )
+                .onChange(of: viewModel.colorCount) { _, _ in
+                    viewModel.outputImage = nil
+                    showingOriginal = false
                 }
             }
             
@@ -224,59 +268,89 @@ struct PixelateView: View {
             } label: {
                 HStack {
                     Image(systemName: viewModel.selectedMethod.icon)
-                    Text("Apply \(viewModel.selectedMethod.displayName)")
+                    Text("APPLY \(viewModel.selectedMethod.displayName.uppercased())")
                 }
-                .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(PixelButtonStyle())
             .disabled(viewModel.sourceImage == nil || viewModel.isProcessing)
+            .opacity(viewModel.sourceImage == nil || viewModel.isProcessing ? 0.5 : 1)
             
             if let error = viewModel.errorMessage {
                 Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .font(.pixel(11, weight: .medium))
+                    .foregroundStyle(Theme.accentBright)
             }
         }
         .padding()
-        .background(Color(uiColor: .systemBackground))
+        .padding(.trailing, Theme.shadowOffset)  // room for button shadow
+        .background(Theme.ink)
+    }
+    
+    // A themed slider with a pixel label header.
+    private func sliderRow(title: String, value: String, binding: Binding<Double>, range: ClosedRange<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                PixelSectionHeader(title: title)
+                Text(value)
+                    .font(.pixel(13, weight: .heavy))
+                    .foregroundStyle(Theme.accent)
+            }
+            Slider(value: binding, in: range, step: 1)
+                .tint(Theme.accent)
+        }
     }
     
     // MARK: - Method Picker Sheet
     
     private var methodPickerSheet: some View {
         NavigationStack {
-            List {
-                ForEach(PixelationMethod.allCases) { method in
-                    Button {
-                        viewModel.selectedMethod = method
-                        showingMethodPicker = false
-                    } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: method.icon)
-                                .font(.title3)
-                                .frame(width: 32)
-                                .foregroundStyle(viewModel.selectedMethod == method ? Color.accentColor : .secondary)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(method.displayName)
-                                    .font(.body.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                                Text(method.shortDescription)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
+            ScrollView {
+                VStack(spacing: 10) {
+                    ForEach(PixelationMethod.allCases) { method in
+                        let selected = viewModel.selectedMethod == method
+                        Button {
+                            viewModel.selectedMethod = method
+                            showingMethodPicker = false
+                        } label: {
+                            HStack(spacing: 14) {
+                                Image(systemName: method.icon)
+                                    .font(.system(size: 20))
+                                    .frame(width: 34)
+                                    .foregroundStyle(selected ? .white : Theme.steel)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(method.displayName)
+                                        .font(.pixel(14, weight: .heavy))
+                                        .foregroundStyle(selected ? .white : Theme.onDark)
+                                    Text(method.shortDescription)
+                                        .font(.pixel(10, weight: .medium))
+                                        .foregroundStyle(selected ? Color.white.opacity(0.8) : Theme.onDarkDim)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .multilineTextAlignment(.leading)
+                                }
+                                Spacer()
+                                if selected {
+                                    Image(systemName: "checkmark")
+                                        .font(.pixel(14, weight: .heavy))
+                                        .foregroundStyle(.white)
+                                }
                             }
-                            Spacer()
-                            if viewModel.selectedMethod == method {
-                                Image(systemName: "checkmark")
-                                    .font(.body.weight(.semibold))
-                                    .foregroundStyle(Color.accentColor)
-                            }
+                            .padding(12)
+                            .background(
+                                RoundedRectangle(cornerRadius: Theme.radius)
+                                    .fill(selected ? Theme.accent : Theme.panel)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Theme.radius)
+                                    .strokeBorder(selected ? Color.black.opacity(0.3) : Theme.steelDark,
+                                                  lineWidth: Theme.border)
+                            )
                         }
-                        .padding(.vertical, 4)
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
+                .padding()
             }
+            .background(Theme.ink)
             .navigationTitle("Pixelation Method")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -284,6 +358,7 @@ struct PixelateView: View {
                     Button("Done") {
                         showingMethodPicker = false
                     }
+                    .font(.pixel(14, weight: .heavy))
                 }
             }
         }
